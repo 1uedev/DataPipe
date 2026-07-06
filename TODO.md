@@ -4,11 +4,10 @@ Working queue for DataPipe. Top item is always next. Detail and acceptance crite
 
 ## Now
 
-- [ ] **Increment 5 — Live debugging** (inspector, debug sidebar, wire animation, data pinning)
+- [ ] **Increment 6 — First real connectors** (MQTT, HTTP/REST, schedule, files, Postgres, bus topics)
 
 ## Next (in order, from docs/Development-Plan.md)
 
-- [ ] Increment 6 — First real connectors (MQTT, HTTP/REST, schedule, files, Postgres, bus topics)
 - [ ] Increment 7 — Processor library P1 (script sandbox, window/aggregate, switch, expressions)
 - [ ] Increment 8 — Triggered workflows (execution history, error flows, DLQ, re-run)
 - [ ] Increment 9 — Edge runtime + fleet (enrollment, store-and-forward, runtime groups)
@@ -28,10 +27,15 @@ Working queue for DataPipe. Top item is always next. Detail and acceptance crite
 - [ ] ERR-120 (flow-level error handler) and ERR-130 (dead-letter topic) are not implemented — only the per-node ERR-100 policy (fail/retry/errorPort/discard) exists
 - [ ] `registry.Service.DeployFlow` broadcasts every deploy to every connected runtime — Flow-File-Format's `runtimeAssignment`/UI-220 (deploy to a specific runtime/edge group) isn't implemented; needs real fleet/group targeting in Increment 9
 - [ ] SEC-100 P2 items deferred: TOTP 2FA, OIDC/SAML SSO, LDAP/AD sync; SEC-110 custom granular roles (P2); SEC-120 external vault integration and a KEK-rotation admin operation (the versioned envelope mechanism that enables rotation exists, but nothing yet re-wraps existing DEKs under a new KEK)
-- [ ] API-110 (WebSocket/live channel for debug/deploy-status/runtime-health) not implemented — lands with live debugging (Increment 5)
+- [ ] API-110's WebSocket channel now exists for live debugging (`/ws/debug`, Increment 5) but not for deploy-status/runtime-health push — those are still poll-only (GET /runtimes etc.); consider folding them into the same channel or a sibling one later
 - [ ] API-120 versioning/deprecation policy and scoped API keys (as opposed to session tokens) not implemented
 - [ ] VCS-120 (git integration) and VCS-150 (deployment pipeline promotion with approval gates) are P2, deferred
-- [ ] Increment 4 (editor) scope explicitly excluded per Development-Plan's "subflow-less editing": UI-140 (subflows). Also not implemented (not listed in the Increment 4 bullet, deferred to their own later work): UI-180 auto-layout/printable docs (P2), UI-220 deploy-target/runtime-group selection (Increment 9 fleet work), UI-230 concurrent-editing presence (P2), UI-320 accessibility audit (P2), UI-330 onboarding tutorial + template gallery, UI-150 visual groups/sticky notes, UI-130 quick-insert-on-wire and live throughput labels, UI-120 live datagrams/sec + last-value indicators (all need DBG-170 live data, Increment 5)
+- [ ] Increment 4 (editor) scope explicitly excluded per Development-Plan's "subflow-less editing": UI-140 (subflows). Also not implemented (not listed in the Increment 4 bullet, deferred to their own later work): UI-180 auto-layout/printable docs (P2), UI-220 deploy-target/runtime-group selection (Increment 9 fleet work), UI-230 concurrent-editing presence (P2), UI-320 accessibility audit (P2), UI-330 onboarding tutorial + template gallery, UI-150 visual groups/sticky notes, UI-130 quick-insert-on-wire (the live-throughput-label half of UI-130 is now done via DBG-120's wire counters)
+- [ ] UI-120's "last-value indicator" directly on a canvas node (as opposed to opening its Inspector tab) is still not built; live datagrams/sec and wire counters are covered by DBG-120's edge labels
 - [ ] UI-200's "scope choice: full / modified flows only / modified nodes only" isn't a UI toggle — the editor always deploys one flow at a time (matching the REST API's per-flow deploy endpoint); modified-nodes-only behavior already happens automatically server-side via ENG-140 hot deploy regardless of what the UI offers
 - [ ] Development-Plan Increment 4's "usability check with one target-persona user" is a human deliverable — not something an agent can perform; golden path (build + deploy inject→set→debug-log in the browser) was verified thoroughly via manual browser testing instead, but the actual usability test with a real target-persona user is still outstanding
 - [ ] Automated browser verification of drawing a NEW wire by dragging (React Flow's pointer-capture-based connection gesture) didn't work via synthetic PointerEvents in headless testing — a testing-tool limitation, not a demonstrated app defect; the underlying `onConnect`/`reconnectEdge` store logic is unit-tested, and loading/saving/deploying a flow with pre-existing wires was verified live end to end. Worth a follow-up manual check in a real (non-headless) browser
+- [ ] `engine/flow.Deployment` reconciles against a single `*FlowFile` per `Deploy` call and has no concept of "which flow" beyond the last one deployed — a runtime that received two different flows would tear down the first one's nodes when the second is deployed (its node ids aren't in the new file's graph). Today's control plane broadcasts one flow to every runtime, so this hasn't bitten yet, but real multi-flow-per-runtime (implied by Increment 9's fleet/group work) needs `Deployment` to key its reconciliation by flow id first
+- [ ] DBG-130's data pinning stores a sample per (flow, node, port) and shows it in that node's own Inspector tab, but does not yet feed pinned values into *downstream* nodes' config forms (the Development-Plan's "so downstream configuration shows realistic values without live sources") — that needs SchemaForm/expression-editor integration, natural to pair with Increment 7's expression support (MAP-130)
+- [ ] DBG-150 (lineage view) and DBG-160 (breakpoints) are P2/SHOULD per the requirements spec and were correctly out of Increment 5's scope; not implemented
+- [ ] DBG-140 (execution history for triggered workflows) is Increment 8's territory (needs ENG-130 triggered mode first), not Increment 5's; not implemented
