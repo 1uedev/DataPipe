@@ -2,6 +2,20 @@
 
 Reverse chronological. Every finished step gets one entry: date, what was done, requirement IDs touched, commit hash(es).
 
+## 2026-07-06 — Increment 3: control plane core + REST API
+
+* **OpenAPI contract** written first: `docs/api/openapi.yaml` — auth, users, projects, flows CRUD + deploy + immutable version history + rollback, connections, write-only credentials, runtimes, audit log.
+* **Proto**: `RuntimeRegistryService` gains `DeployStream` (server-streaming, ARC-210/ADR-007) — the runtime opens it once after `Register`; the control plane pushes one response per deploy.
+* **`controlplane/internal/db`**: dialect-portable persistence (SQLite via `modernc.org/sqlite`, pure Go/CGO-free; Postgres via existing pgx/v5) — `?`-placeholder SQL rebound to `$N` for Postgres, an embedded migration runner (`migrations/0001_init.sql`, tracked in `schema_migrations`), no autoincrement/serial/BLOB anywhere so one schema file works for both backends.
+* **`controlplane/internal/crypto`** (SEC-120): real envelope encryption — a random per-credential DEK encrypts the value; the DEK is wrapped under a versioned master KEK (`DATAPIPE_MASTER_KEY`), so a future KEK rotation only re-wraps DEKs, never the values.
+* **`controlplane/internal/auth`** (SEC-100/110): local accounts (bcrypt), opaque bearer sessions (only the token hash is persisted), and project-scoped RBAC (Viewer < Operator < Editor < Project Admin; System Admin bypasses project scoping).
+* **`controlplane/internal/audit`** (SEC-140): hash-chained append-only audit log; `Verify` walks the chain and detects any historical edit or deletion.
+* **`controlplane/internal/api`**: REST handlers matching the OpenAPI contract. Deploy validates the draft with the *same* `engine/flow.Validate` the runtime uses, snapshots an immutable `flow_versions` row (VCS-110), and pushes it via a `Deployer` interface. Credentials are write-only by construction — no type or route ever pairs metadata with a decrypted value.
+* **`controlplane/internal/registry`**: `DeployFlow` pushes to every connected runtime's open `DeployStream`; `ListRuntimes` backs `GET /runtimes`. Per-runtime/group targeting (`runtimeAssignment`) deferred to Increment 9.
+* **`engine/cmd/runtime`**: now holds a `flow.Deployment` and blank-imports the three built-in node packages, applying pushed deploys via `Parse`+`Deploy` — hot-swap (ENG-140) applies to control-plane-issued deploys exactly as to CLI-issued ones.
+* Removed `controlplane/internal/store` (Increment 0's Postgres-only ping helper), superseded by `internal/db`.
+* **Verified**: full test suite (SQLite always, Postgres via `DATAPIPE_TEST_POSTGRES_DSN`) passes under `-race`, including `TestARC110_FullFlowLifecycleViaRESTOnly` (project → flow → deploy → versions → rollback, entirely over REST) and a SEC-110/SEC-120 suite proving RBAC enforcement and that credential values never leak into any response, list, or audit entry. Additionally ran the compiled `controlplane`+`runtime` binaries directly (SQLite, no Docker — Docker Hub pulls were hanging in this environment, proxy-related, see TODO.md) end to end: real gRPC registration, a real REST deploy pushed over a real `DeployStream`, the runtime genuinely executing the resulting inject→set→debug-log pipeline. `(759c6f7)`
+
 ## 2026-07-06 — CI: first real GitHub Actions run, three genuine bugs fixed
 
 The `ci.yml` workflow had never actually been observed running on GitHub Actions (only verified locally with matching tool versions). The first real run (Holger-triggered) failed, and three distinct root causes were found and fixed by watching each subsequent run via the GitHub REST API (job/step/annotation endpoints — no repo-admin rights needed for those, unlike raw log download):
