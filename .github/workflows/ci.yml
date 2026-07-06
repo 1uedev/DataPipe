@@ -87,8 +87,10 @@ jobs:
     needs: [go, ui]
     steps:
       - uses: actions/checkout@v4
+      - name: docker compose build
+        run: docker compose -f deploy/docker-compose.yml build
       - name: docker compose up
-        run: docker compose -f deploy/docker-compose.yml up --build -d
+        run: docker compose -f deploy/docker-compose.yml up -d
       - name: wait for health
         run: |
           for svc in postgres controlplane runtime; do
@@ -103,6 +105,9 @@ jobs:
         run: curl -sf http://localhost:8080/healthz
       - name: runtime health endpoint
         run: curl -sf http://localhost:8082/healthz
+      - name: dump logs on failure
+        if: failure()
+        run: docker compose -f deploy/docker-compose.yml logs
       - name: teardown
         if: always()
         run: docker compose -f deploy/docker-compose.yml down -v
