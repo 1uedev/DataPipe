@@ -20,6 +20,14 @@ DataPipe is a web-based visual data flow platform (Node-RED + n8n class) focused
 5. **Engine rules**: connectors use the shared reconnect/cancellation helpers (CON-130), never own retry loops; nodes communicate only via datagrams or the context store API; a panicking node must never take down the runtime (ARC-150 — recover at node boundary).
 6. **Backpressure is sacred**: nothing buffers unboundedly. Every queue has a limit and a configured overflow policy (BUS-110); drops are counted in metrics.
 
+## Git workflow
+
+Remote: `https://github.com/1uedev/DataPipe.git` (origin, branch `main`).
+
+* Commit after every completed work step with a message citing the requirement IDs touched; **push to origin after each step/increment** so the remote always reflects the latest state.
+* Never commit secrets, credentials, or `.env` files (see `.gitignore`); flow exports must be secret-free by construction (SEC-120).
+* If a push fails for lack of credentials in the current environment, finish the commit locally and tell Holger to push — never leave work uncommitted.
+
 ## Stack and layout (from Architecture.md)
 
 Go ≥ latest stable for `engine/`, `controlplane/`, `cli/`, `sdk/`; TypeScript + React + React Flow in `ui/`; Protobuf in `proto/` is the source of truth for runtime and plugin protocols; PostgreSQL (SQLite for all-in-one mode); NATS JetStream only behind the durability/scale-out feature flag. Monorepo: Go workspace + pnpm workspace.

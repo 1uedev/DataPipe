@@ -69,3 +69,4 @@ HSMS transport → SECS-II codec + message dictionary → GEM host capabilities 
 2. Every requirement ID touched gets a test naming that ID.
 3. Benchmarks run in CI from Increment 1 on; NFR-100 regression gate active from Increment 6.
 4. Demo at the end of each increment against the "Done when" line — no partial credit.
+5. Each completed increment is committed and pushed to `https://github.com/1uedev/DataPipe.git` (origin/main) before the next one starts; the commit message names the increment and the requirement IDs it closes.
