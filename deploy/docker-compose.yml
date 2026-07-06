@@ -1,0 +1,58 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: datapipe
+      POSTGRES_PASSWORD: datapipe
+      POSTGRES_DB: datapipe
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U datapipe -d datapipe"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - datapipe-postgres:/var/lib/postgresql/data
+
+  controlplane:
+    build:
+      context: ..
+      dockerfile: deploy/controlplane.Dockerfile
+    environment:
+      DATABASE_URL: postgres://datapipe:datapipe@postgres:5432/datapipe?sslmode=disable
+      CONTROLPLANE_HTTP_ADDR: ":8080"
+      CONTROLPLANE_GRPC_ADDR: ":9090"
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  runtime:
+    build:
+      context: ..
+      dockerfile: deploy/runtime.Dockerfile
+    environment:
+      CONTROLPLANE_GRPC_ADDR: "controlplane:9090"
+      RUNTIME_HTTP_ADDR: ":8081"
+      RUNTIME_ID: "server-runtime-1"
+    ports:
+      - "8082:8081"
+    depends_on:
+      controlplane:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8081/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  datapipe-postgres:

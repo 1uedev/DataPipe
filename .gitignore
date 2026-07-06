@@ -4,3 +4,6 @@ bin/
 *.log
 .env
 .DS_Store
+/cli/datapipe
+/engine/runtime
+/controlplane/controlplane

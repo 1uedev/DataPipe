@@ -1,0 +1,41 @@
+// Runtime registration protocol (ARC-210, ADR-007): runtimes dial the
+// control plane and register themselves; this is the walking-skeleton
+// slice of the eventual deploy/status/debug streams.
+syntax = "proto3";
+
+package datapipe.runtime.v1;
+
+option go_package = "github.com/1uedev/DataPipe/proto/gen/go/datapipe/runtime/v1;runtimev1";
+
+// RuntimeRegistry is implemented by the control plane. Runtimes (server or
+// edge) are the gRPC clients and always initiate the connection.
+service RuntimeRegistryService {
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+}
+
+enum RuntimeKind {
+  RUNTIME_KIND_UNSPECIFIED = 0;
+  RUNTIME_KIND_SERVER = 1;
+  RUNTIME_KIND_EDGE = 2;
+}
+
+message RegisterRequest {
+  string runtime_id = 1;
+  RuntimeKind kind = 2;
+  string version = 3;
+}
+
+message RegisterResponse {
+  bool accepted = 1;
+  string session_token = 2;
+}
+
+message HeartbeatRequest {
+  string runtime_id = 1;
+  string session_token = 2;
+}
+
+message HeartbeatResponse {
+  bool ok = 1;
+}
