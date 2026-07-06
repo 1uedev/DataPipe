@@ -17,6 +17,8 @@ Working queue for DataPipe. Top item is always next. Detail and acceptance crite
 
 ## Backlog / unscheduled
 
+- [ ] **Standing item**: update `docs/User-Guide.md` and `docs/Admin-Guide.md` at the end of every increment (they document the state after Increment 4; NFR-310/320 require them complete and offline-available by 1.0)
+
 - [ ] Equipment simulator selection for SECS/GEM testing (Increment 11 prerequisite)
 - [ ] Usability test participants for NFR-300 (first-flow-in-15-minutes criterion)
 - [ ] Runtime↔control-plane gRPC channel currently dials with insecure credentials (walking-skeleton placeholder) — add TLS per Architecture §2.5/ADR-007 before edge runtimes (Increment 9) connect over untrusted networks

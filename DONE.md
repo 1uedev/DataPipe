@@ -2,6 +2,12 @@
 
 Reverse chronological. Every finished step gets one entry: date, what was done, requirement IDs touched, commit hash(es).
 
+## 2026-07-06 — User and admin guides (state after Increment 4)
+
+* `docs/User-Guide.md`: signing in, roles, projects/flows, editor (canvas, palette, wiring, schema-generated config panel, shortcuts, save/deploy), current node set (inject/set/debug-log), honest current-limitations list. Groundwork for NFR-310.
+* `docs/Admin-Guide.md`: compose and bare-binary/SQLite install, full env-var reference (incl. `DATAPIPE_MASTER_KEY` handling warning), user/RBAC management via REST, credential envelope encryption, hash-chained audit log, flow lifecycle ops, backup/restore, troubleshooting table, upgrade order. Groundwork for NFR-320.
+* Both guides mark unbuilt spec features explicitly as coming soon; they must be updated per increment (added as a standing item in TODO.md). `(6df36ce)`
+
 ## 2026-07-06 — Increment 4: editor MVP
 
 * **Backend**: `engine/flow.NodeTypeInfo` gains display metadata + a JSON Schema per node type; `inject`/`set`/`debug-log` register real schemas; new `GET /node-types` (OpenAPI updated) so the editor's palette and config forms are genuinely schema-driven.
