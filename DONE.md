@@ -2,6 +2,16 @@
 
 Reverse chronological. Every finished step gets one entry: date, what was done, requirement IDs touched, commit hash(es).
 
+## 2026-07-06 — CI: first real GitHub Actions run, three genuine bugs fixed
+
+The `ci.yml` workflow had never actually been observed running on GitHub Actions (only verified locally with matching tool versions). The first real run (Holger-triggered) failed, and three distinct root causes were found and fixed by watching each subsequent run via the GitHub REST API (job/step/annotation endpoints — no repo-admin rights needed for those, unlike raw log download):
+
+* **`proto` job**: `buf generate` needs `protoc-gen-go`/`protoc-gen-go-grpc` on `PATH` (they're `local:` plugins in `buf.gen.yaml`), but the job only installed `buf` itself. Added `actions/setup-go` + `go install` for both, pinned to the versions in `proto/gen/go/go.mod`. `(14b7089)`
+* **`go` job**: `golangci-lint-action@v6` doesn't support golangci-lint v2 (we develop against v2.12.2 locally, per `.golangci.yml`'s `version: "2"`) — confirmed by the run's annotations ("you must update to golangci-lint-action v7"). Bumped to v7. Also pointed `setup-go`'s `cache-dependency-path` at the go.sum files that actually exist (`proto/gen/go`, `engine`, `controlplane`) instead of the repo root, clearing an unrelated cache-restore warning. `(d34f7b9)`
+* **`compose-smoke-test` job**: `docker compose build` failed — reproduced locally with a plain `docker compose build` after splitting the combined `up --build` step into separate `build`/`up` steps for failure-location visibility (`4957df5`). Root cause: `go.work` has listed `./tests` as a workspace member since Increment 1, but neither Dockerfile ever copied `tests/` into the build context, so `go build` inside the image failed with "cannot load module ../tests listed in go.work file". Added `COPY tests ./tests` to both Dockerfiles. `(e73114b)`
+
+All four jobs (`proto`, `go`, `ui`, `compose-smoke-test`) confirmed green on commit `e73114b`.
+
 ## 2026-07-06 — Increment 2: flow model + engine lifecycle
 
 * **Flow file model + canonical serializer** (Flow-File-Format §2-3, §7.6): `engine/flow/file.go` (FlowFile/Graph/Node/Wire/ErrorPolicy/Layout/subflow-interface structs matching the spec's field names exactly), `engine/flow/canonical.go` (sorted keys via a `json.Number` generic round-trip, nodes/wires/env sorted by id/name, 2-space indent). Proven a stable fixed point and independent of input array order by tests using the spec's own example flow.
