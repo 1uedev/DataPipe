@@ -1,0 +1,37 @@
+{
+  "formatVersion": 1,
+  "kind": "flow",
+  "id": "flow_inject_set_log_demo",
+  "name": "Inject -> Set -> Debug Log demo",
+  "description": "Development-Plan Increment 2 walkthrough: the three trivial node types wired into one streaming flow.",
+  "mode": "streaming",
+  "graph": {
+    "nodes": [
+      {
+        "id": "n1",
+        "type": "inject",
+        "typeVersion": 1,
+        "name": "Inject demo value",
+        "config": { "payload": { "value": 21 }, "repeatMs": 1000 }
+      },
+      {
+        "id": "n2",
+        "type": "set",
+        "typeVersion": 1,
+        "name": "Add status field",
+        "config": { "sets": [ { "path": "status", "value": "processed" } ] }
+      },
+      {
+        "id": "n3",
+        "type": "debug-log",
+        "typeVersion": 1,
+        "name": "Log result",
+        "config": { "label": "demo" }
+      }
+    ],
+    "wires": [
+      { "id": "w1", "from": { "node": "n1", "port": "out" }, "to": { "node": "n2", "port": "in" } },
+      { "id": "w2", "from": { "node": "n2", "port": "out" }, "to": { "node": "n3", "port": "in" } }
+    ]
+  }
+}
