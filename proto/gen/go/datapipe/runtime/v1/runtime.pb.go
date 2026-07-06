@@ -905,6 +905,129 @@ func (x *UnsubscribeFlow) GetFlowId() string {
 	return ""
 }
 
+type ResolveConnectionRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RuntimeId     string                 `protobuf:"bytes,1,opt,name=runtime_id,json=runtimeId,proto3" json:"runtime_id,omitempty"`
+	SessionToken  string                 `protobuf:"bytes,2,opt,name=session_token,json=sessionToken,proto3" json:"session_token,omitempty"`
+	ConnectionId  string                 `protobuf:"bytes,3,opt,name=connection_id,json=connectionId,proto3" json:"connection_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResolveConnectionRequest) Reset() {
+	*x = ResolveConnectionRequest{}
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResolveConnectionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResolveConnectionRequest) ProtoMessage() {}
+
+func (x *ResolveConnectionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResolveConnectionRequest.ProtoReflect.Descriptor instead.
+func (*ResolveConnectionRequest) Descriptor() ([]byte, []int) {
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *ResolveConnectionRequest) GetRuntimeId() string {
+	if x != nil {
+		return x.RuntimeId
+	}
+	return ""
+}
+
+func (x *ResolveConnectionRequest) GetSessionToken() string {
+	if x != nil {
+		return x.SessionToken
+	}
+	return ""
+}
+
+func (x *ResolveConnectionRequest) GetConnectionId() string {
+	if x != nil {
+		return x.ConnectionId
+	}
+	return ""
+}
+
+// ResolveConnectionResponse carries a connection's type and non-secret
+// config always; credential_json is the decrypted credential value
+// (JSON-encoded) if the connection references one, otherwise empty.
+type ResolveConnectionResponse struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Type           string                 `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`
+	ConfigJson     string                 `protobuf:"bytes,2,opt,name=config_json,json=configJson,proto3" json:"config_json,omitempty"`
+	CredentialJson string                 `protobuf:"bytes,3,opt,name=credential_json,json=credentialJson,proto3" json:"credential_json,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ResolveConnectionResponse) Reset() {
+	*x = ResolveConnectionResponse{}
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResolveConnectionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResolveConnectionResponse) ProtoMessage() {}
+
+func (x *ResolveConnectionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResolveConnectionResponse.ProtoReflect.Descriptor instead.
+func (*ResolveConnectionResponse) Descriptor() ([]byte, []int) {
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *ResolveConnectionResponse) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *ResolveConnectionResponse) GetConfigJson() string {
+	if x != nil {
+		return x.ConfigJson
+	}
+	return ""
+}
+
+func (x *ResolveConnectionResponse) GetCredentialJson() string {
+	if x != nil {
+		return x.CredentialJson
+	}
+	return ""
+}
+
 var File_datapipe_runtime_v1_runtime_proto protoreflect.FileDescriptor
 
 const file_datapipe_runtime_v1_runtime_proto_rawDesc = "" +
@@ -972,16 +1095,27 @@ const file_datapipe_runtime_v1_runtime_proto_rawDesc = "" +
 	"\rSubscribeFlow\x12\x17\n" +
 	"\aflow_id\x18\x01 \x01(\tR\x06flowId\"*\n" +
 	"\x0fUnsubscribeFlow\x12\x17\n" +
-	"\aflow_id\x18\x01 \x01(\tR\x06flowId*[\n" +
+	"\aflow_id\x18\x01 \x01(\tR\x06flowId\"\x83\x01\n" +
+	"\x18ResolveConnectionRequest\x12\x1d\n" +
+	"\n" +
+	"runtime_id\x18\x01 \x01(\tR\truntimeId\x12#\n" +
+	"\rsession_token\x18\x02 \x01(\tR\fsessionToken\x12#\n" +
+	"\rconnection_id\x18\x03 \x01(\tR\fconnectionId\"y\n" +
+	"\x19ResolveConnectionResponse\x12\x12\n" +
+	"\x04type\x18\x01 \x01(\tR\x04type\x12\x1f\n" +
+	"\vconfig_json\x18\x02 \x01(\tR\n" +
+	"configJson\x12'\n" +
+	"\x0fcredential_json\x18\x03 \x01(\tR\x0ecredentialJson*[\n" +
 	"\vRuntimeKind\x12\x1c\n" +
 	"\x18RUNTIME_KIND_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13RUNTIME_KIND_SERVER\x10\x01\x12\x15\n" +
-	"\x11RUNTIME_KIND_EDGE\x10\x022\x9d\x03\n" +
+	"\x11RUNTIME_KIND_EDGE\x10\x022\x91\x04\n" +
 	"\x16RuntimeRegistryService\x12W\n" +
 	"\bRegister\x12$.datapipe.runtime.v1.RegisterRequest\x1a%.datapipe.runtime.v1.RegisterResponse\x12Z\n" +
 	"\tHeartbeat\x12%.datapipe.runtime.v1.HeartbeatRequest\x1a&.datapipe.runtime.v1.HeartbeatResponse\x12e\n" +
 	"\fDeployStream\x12(.datapipe.runtime.v1.DeployStreamRequest\x1a).datapipe.runtime.v1.DeployStreamResponse0\x01\x12g\n" +
-	"\fDebugChannel\x12(.datapipe.runtime.v1.DebugChannelRequest\x1a).datapipe.runtime.v1.DebugChannelResponse(\x010\x01BGZEgithub.com/1uedev/DataPipe/proto/gen/go/datapipe/runtime/v1;runtimev1b\x06proto3"
+	"\fDebugChannel\x12(.datapipe.runtime.v1.DebugChannelRequest\x1a).datapipe.runtime.v1.DebugChannelResponse(\x010\x01\x12r\n" +
+	"\x11ResolveConnection\x12-.datapipe.runtime.v1.ResolveConnectionRequest\x1a..datapipe.runtime.v1.ResolveConnectionResponseBGZEgithub.com/1uedev/DataPipe/proto/gen/go/datapipe/runtime/v1;runtimev1b\x06proto3"
 
 var (
 	file_datapipe_runtime_v1_runtime_proto_rawDescOnce sync.Once
@@ -996,21 +1130,23 @@ func file_datapipe_runtime_v1_runtime_proto_rawDescGZIP() []byte {
 }
 
 var file_datapipe_runtime_v1_runtime_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_datapipe_runtime_v1_runtime_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_datapipe_runtime_v1_runtime_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_datapipe_runtime_v1_runtime_proto_goTypes = []any{
-	(RuntimeKind)(0),             // 0: datapipe.runtime.v1.RuntimeKind
-	(*RegisterRequest)(nil),      // 1: datapipe.runtime.v1.RegisterRequest
-	(*RegisterResponse)(nil),     // 2: datapipe.runtime.v1.RegisterResponse
-	(*HeartbeatRequest)(nil),     // 3: datapipe.runtime.v1.HeartbeatRequest
-	(*HeartbeatResponse)(nil),    // 4: datapipe.runtime.v1.HeartbeatResponse
-	(*DeployStreamRequest)(nil),  // 5: datapipe.runtime.v1.DeployStreamRequest
-	(*DeployStreamResponse)(nil), // 6: datapipe.runtime.v1.DeployStreamResponse
-	(*DebugChannelRequest)(nil),  // 7: datapipe.runtime.v1.DebugChannelRequest
-	(*DebugEvent)(nil),           // 8: datapipe.runtime.v1.DebugEvent
-	(*WireMetricsSnapshot)(nil),  // 9: datapipe.runtime.v1.WireMetricsSnapshot
-	(*DebugChannelResponse)(nil), // 10: datapipe.runtime.v1.DebugChannelResponse
-	(*SubscribeFlow)(nil),        // 11: datapipe.runtime.v1.SubscribeFlow
-	(*UnsubscribeFlow)(nil),      // 12: datapipe.runtime.v1.UnsubscribeFlow
+	(RuntimeKind)(0),                  // 0: datapipe.runtime.v1.RuntimeKind
+	(*RegisterRequest)(nil),           // 1: datapipe.runtime.v1.RegisterRequest
+	(*RegisterResponse)(nil),          // 2: datapipe.runtime.v1.RegisterResponse
+	(*HeartbeatRequest)(nil),          // 3: datapipe.runtime.v1.HeartbeatRequest
+	(*HeartbeatResponse)(nil),         // 4: datapipe.runtime.v1.HeartbeatResponse
+	(*DeployStreamRequest)(nil),       // 5: datapipe.runtime.v1.DeployStreamRequest
+	(*DeployStreamResponse)(nil),      // 6: datapipe.runtime.v1.DeployStreamResponse
+	(*DebugChannelRequest)(nil),       // 7: datapipe.runtime.v1.DebugChannelRequest
+	(*DebugEvent)(nil),                // 8: datapipe.runtime.v1.DebugEvent
+	(*WireMetricsSnapshot)(nil),       // 9: datapipe.runtime.v1.WireMetricsSnapshot
+	(*DebugChannelResponse)(nil),      // 10: datapipe.runtime.v1.DebugChannelResponse
+	(*SubscribeFlow)(nil),             // 11: datapipe.runtime.v1.SubscribeFlow
+	(*UnsubscribeFlow)(nil),           // 12: datapipe.runtime.v1.UnsubscribeFlow
+	(*ResolveConnectionRequest)(nil),  // 13: datapipe.runtime.v1.ResolveConnectionRequest
+	(*ResolveConnectionResponse)(nil), // 14: datapipe.runtime.v1.ResolveConnectionResponse
 }
 var file_datapipe_runtime_v1_runtime_proto_depIdxs = []int32{
 	0,  // 0: datapipe.runtime.v1.RegisterRequest.kind:type_name -> datapipe.runtime.v1.RuntimeKind
@@ -1022,12 +1158,14 @@ var file_datapipe_runtime_v1_runtime_proto_depIdxs = []int32{
 	3,  // 6: datapipe.runtime.v1.RuntimeRegistryService.Heartbeat:input_type -> datapipe.runtime.v1.HeartbeatRequest
 	5,  // 7: datapipe.runtime.v1.RuntimeRegistryService.DeployStream:input_type -> datapipe.runtime.v1.DeployStreamRequest
 	7,  // 8: datapipe.runtime.v1.RuntimeRegistryService.DebugChannel:input_type -> datapipe.runtime.v1.DebugChannelRequest
-	2,  // 9: datapipe.runtime.v1.RuntimeRegistryService.Register:output_type -> datapipe.runtime.v1.RegisterResponse
-	4,  // 10: datapipe.runtime.v1.RuntimeRegistryService.Heartbeat:output_type -> datapipe.runtime.v1.HeartbeatResponse
-	6,  // 11: datapipe.runtime.v1.RuntimeRegistryService.DeployStream:output_type -> datapipe.runtime.v1.DeployStreamResponse
-	10, // 12: datapipe.runtime.v1.RuntimeRegistryService.DebugChannel:output_type -> datapipe.runtime.v1.DebugChannelResponse
-	9,  // [9:13] is the sub-list for method output_type
-	5,  // [5:9] is the sub-list for method input_type
+	13, // 9: datapipe.runtime.v1.RuntimeRegistryService.ResolveConnection:input_type -> datapipe.runtime.v1.ResolveConnectionRequest
+	2,  // 10: datapipe.runtime.v1.RuntimeRegistryService.Register:output_type -> datapipe.runtime.v1.RegisterResponse
+	4,  // 11: datapipe.runtime.v1.RuntimeRegistryService.Heartbeat:output_type -> datapipe.runtime.v1.HeartbeatResponse
+	6,  // 12: datapipe.runtime.v1.RuntimeRegistryService.DeployStream:output_type -> datapipe.runtime.v1.DeployStreamResponse
+	10, // 13: datapipe.runtime.v1.RuntimeRegistryService.DebugChannel:output_type -> datapipe.runtime.v1.DebugChannelResponse
+	14, // 14: datapipe.runtime.v1.RuntimeRegistryService.ResolveConnection:output_type -> datapipe.runtime.v1.ResolveConnectionResponse
+	10, // [10:15] is the sub-list for method output_type
+	5,  // [5:10] is the sub-list for method input_type
 	5,  // [5:5] is the sub-list for extension type_name
 	5,  // [5:5] is the sub-list for extension extendee
 	0,  // [0:5] is the sub-list for field type_name
@@ -1052,7 +1190,7 @@ func file_datapipe_runtime_v1_runtime_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_datapipe_runtime_v1_runtime_proto_rawDesc), len(file_datapipe_runtime_v1_runtime_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   12,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

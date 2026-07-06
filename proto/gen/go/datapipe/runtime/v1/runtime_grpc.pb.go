@@ -23,10 +23,11 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	RuntimeRegistryService_Register_FullMethodName     = "/datapipe.runtime.v1.RuntimeRegistryService/Register"
-	RuntimeRegistryService_Heartbeat_FullMethodName    = "/datapipe.runtime.v1.RuntimeRegistryService/Heartbeat"
-	RuntimeRegistryService_DeployStream_FullMethodName = "/datapipe.runtime.v1.RuntimeRegistryService/DeployStream"
-	RuntimeRegistryService_DebugChannel_FullMethodName = "/datapipe.runtime.v1.RuntimeRegistryService/DebugChannel"
+	RuntimeRegistryService_Register_FullMethodName          = "/datapipe.runtime.v1.RuntimeRegistryService/Register"
+	RuntimeRegistryService_Heartbeat_FullMethodName         = "/datapipe.runtime.v1.RuntimeRegistryService/Heartbeat"
+	RuntimeRegistryService_DeployStream_FullMethodName      = "/datapipe.runtime.v1.RuntimeRegistryService/DeployStream"
+	RuntimeRegistryService_DebugChannel_FullMethodName      = "/datapipe.runtime.v1.RuntimeRegistryService/DebugChannel"
+	RuntimeRegistryService_ResolveConnection_FullMethodName = "/datapipe.runtime.v1.RuntimeRegistryService/ResolveConnection"
 )
 
 // RuntimeRegistryServiceClient is the client API for RuntimeRegistryService service.
@@ -50,6 +51,13 @@ type RuntimeRegistryServiceClient interface {
 	// plane pushes subscribe/unsubscribe requests down the same stream so a
 	// runtime never captures or sends data for a flow nobody is watching.
 	DebugChannel(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[DebugChannelRequest, DebugChannelResponse], error)
+	// ResolveConnection is called by a runtime whenever a connector node
+	// needs the connection it references (Increment 6, CON-110/SEC-120): the
+	// control plane looks up the connection's non-secret config and, if it
+	// references a credential, decrypts it — the decrypted value is only ever
+	// sent here, to the runtime that needs it to actually connect, never
+	// embedded in a deploy push or any flow export.
+	ResolveConnection(ctx context.Context, in *ResolveConnectionRequest, opts ...grpc.CallOption) (*ResolveConnectionResponse, error)
 }
 
 type runtimeRegistryServiceClient struct {
@@ -112,6 +120,16 @@ func (c *runtimeRegistryServiceClient) DebugChannel(ctx context.Context, opts ..
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type RuntimeRegistryService_DebugChannelClient = grpc.BidiStreamingClient[DebugChannelRequest, DebugChannelResponse]
 
+func (c *runtimeRegistryServiceClient) ResolveConnection(ctx context.Context, in *ResolveConnectionRequest, opts ...grpc.CallOption) (*ResolveConnectionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResolveConnectionResponse)
+	err := c.cc.Invoke(ctx, RuntimeRegistryService_ResolveConnection_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RuntimeRegistryServiceServer is the server API for RuntimeRegistryService service.
 // All implementations must embed UnimplementedRuntimeRegistryServiceServer
 // for forward compatibility.
@@ -133,6 +151,13 @@ type RuntimeRegistryServiceServer interface {
 	// plane pushes subscribe/unsubscribe requests down the same stream so a
 	// runtime never captures or sends data for a flow nobody is watching.
 	DebugChannel(grpc.BidiStreamingServer[DebugChannelRequest, DebugChannelResponse]) error
+	// ResolveConnection is called by a runtime whenever a connector node
+	// needs the connection it references (Increment 6, CON-110/SEC-120): the
+	// control plane looks up the connection's non-secret config and, if it
+	// references a credential, decrypts it — the decrypted value is only ever
+	// sent here, to the runtime that needs it to actually connect, never
+	// embedded in a deploy push or any flow export.
+	ResolveConnection(context.Context, *ResolveConnectionRequest) (*ResolveConnectionResponse, error)
 	mustEmbedUnimplementedRuntimeRegistryServiceServer()
 }
 
@@ -154,6 +179,9 @@ func (UnimplementedRuntimeRegistryServiceServer) DeployStream(*DeployStreamReque
 }
 func (UnimplementedRuntimeRegistryServiceServer) DebugChannel(grpc.BidiStreamingServer[DebugChannelRequest, DebugChannelResponse]) error {
 	return status.Error(codes.Unimplemented, "method DebugChannel not implemented")
+}
+func (UnimplementedRuntimeRegistryServiceServer) ResolveConnection(context.Context, *ResolveConnectionRequest) (*ResolveConnectionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ResolveConnection not implemented")
 }
 func (UnimplementedRuntimeRegistryServiceServer) mustEmbedUnimplementedRuntimeRegistryServiceServer() {
 }
@@ -231,6 +259,24 @@ func _RuntimeRegistryService_DebugChannel_Handler(srv interface{}, stream grpc.S
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type RuntimeRegistryService_DebugChannelServer = grpc.BidiStreamingServer[DebugChannelRequest, DebugChannelResponse]
 
+func _RuntimeRegistryService_ResolveConnection_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResolveConnectionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RuntimeRegistryServiceServer).ResolveConnection(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RuntimeRegistryService_ResolveConnection_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RuntimeRegistryServiceServer).ResolveConnection(ctx, req.(*ResolveConnectionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // RuntimeRegistryService_ServiceDesc is the grpc.ServiceDesc for RuntimeRegistryService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -245,6 +291,10 @@ var RuntimeRegistryService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Heartbeat",
 			Handler:    _RuntimeRegistryService_Heartbeat_Handler,
+		},
+		{
+			MethodName: "ResolveConnection",
+			Handler:    _RuntimeRegistryService_ResolveConnection_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

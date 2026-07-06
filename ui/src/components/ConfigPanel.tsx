@@ -79,7 +79,7 @@ export function ConfigPanel({ node, nodeType, flowId, nodeId, onChange, onClose 
             />
           ) : null)}
         {tab === 'description' && <p className="text-sm text-(--color-text-muted)">{nodeType?.description}</p>}
-        {tab === 'inspect' && <Inspector flowId={flowId} nodeId={nodeId} />}
+        {tab === 'inspect' && <Inspector flowId={flowId} nodeId={nodeId} nodeKind={nodeType?.kind} />}
       </div>
     </aside>
   )

@@ -52,6 +52,14 @@ func Open(dsn string) (*DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("db: open %s: %w", driver, err)
 	}
+	if dialect == DialectSQLite {
+		// ":memory:" (and modernc.org/sqlite generally) gives each
+		// connection its own independent database; anything beyond one
+		// pooled connection silently loses writes to sibling connections
+		// under concurrent access. Cap the pool at 1 so all-in-one mode
+		// actually shares one database.
+		sqlDB.SetMaxOpenConns(1)
+	}
 	return &DB{DB: sqlDB, dialect: dialect}, nil
 }
 

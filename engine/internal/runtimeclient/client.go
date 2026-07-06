@@ -27,8 +27,10 @@ type DeployHandler func(ctx context.Context, flowID string, version int64, flowJ
 // registration succeeds or is lost, so callers can drive a health endpoint;
 // onDeploy is invoked for every DeployCommand received while registered.
 // debugSink and rb may be nil to opt out of the live-debugging channel
-// entirely (Increment 5, DBG-100/110/120/170).
-func Run(ctx context.Context, addr, runtimeID, version string, onRegistered func(bool), onDeploy DeployHandler, debugSink *DebugSink, rb RingBufferSource) error {
+// entirely (Increment 5, DBG-100/110/120/170); connResolver may be nil to
+// opt out of connection resolution (Increment 6, CON-110) — nodes that
+// reference a connection will simply fail to resolve it.
+func Run(ctx context.Context, addr, runtimeID, version string, onRegistered func(bool), onDeploy DeployHandler, debugSink *DebugSink, rb RingBufferSource, connResolver *ConnectionResolver) error {
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return err
@@ -57,6 +59,9 @@ func Run(ctx context.Context, addr, runtimeID, version string, onRegistered func
 		bo.Reset()
 		onRegistered(true)
 		slog.Info("runtime registered", "runtime_id", runtimeID)
+		if connResolver != nil {
+			connResolver.attach(client, runtimeID, sessionToken)
+		}
 
 		streamCtx, cancelStreams := context.WithCancel(ctx)
 		go deployStreamLoop(streamCtx, client, runtimeID, sessionToken, onDeploy)

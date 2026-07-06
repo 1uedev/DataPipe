@@ -6,6 +6,15 @@
       "runtimeExecutable": "bash",
       "runtimeArgs": ["-lc", "export NVM_DIR=$HOME/.nvm; source $NVM_DIR/nvm.sh; nvm use 22.22.2 >/dev/null; cd ui && pnpm run dev"],
       "port": 5173
+    },
+    {
+      "name": "controlplane-dev",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-lc",
+        "cd controlplane && DATABASE_URL=':memory:' DATAPIPE_MASTER_KEY='eAJnhEm7voO8IaadQktJOtnsL7eQaMK4hzSF5EW2fUE=' DATAPIPE_ADMIN_PASSWORD='admin-devpass' go run ./cmd/controlplane"
+      ],
+      "port": 8080
     }
   ]
 }

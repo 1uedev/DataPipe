@@ -110,6 +110,7 @@ func (h *Handlers) Routes() http.Handler {
 	protected.HandleFunc("POST /projects/{projectId}/connections", h.createConnection)
 	protected.HandleFunc("PATCH /connections/{connectionId}", h.updateConnection)
 	protected.HandleFunc("DELETE /connections/{connectionId}", h.deleteConnection)
+	protected.HandleFunc("POST /connections/{connectionId}/test", h.testConnection)
 
 	protected.HandleFunc("GET /projects/{projectId}/credentials", h.listCredentials)
 	protected.HandleFunc("POST /projects/{projectId}/credentials", h.createCredential)
@@ -120,6 +121,7 @@ func (h *Handlers) Routes() http.Handler {
 	protected.HandleFunc("GET /node-types", h.listNodeTypes)
 
 	protected.HandleFunc("POST /flows/{flowId}/nodes/{nodeId}/execute", h.executeNode)
+	protected.HandleFunc("POST /flows/{flowId}/nodes/{nodeId}/preview", h.previewNode)
 	protected.HandleFunc("GET /flows/{flowId}/debug/pins", h.listPins)
 	protected.HandleFunc("PUT /flows/{flowId}/nodes/{nodeId}/pins/{port}", h.upsertPin)
 	protected.HandleFunc("DELETE /flows/{flowId}/nodes/{nodeId}/pins/{port}", h.deletePin)

@@ -26,6 +26,14 @@ service RuntimeRegistryService {
   // plane pushes subscribe/unsubscribe requests down the same stream so a
   // runtime never captures or sends data for a flow nobody is watching.
   rpc DebugChannel(stream DebugChannelRequest) returns (stream DebugChannelResponse);
+
+  // ResolveConnection is called by a runtime whenever a connector node
+  // needs the connection it references (Increment 6, CON-110/SEC-120): the
+  // control plane looks up the connection's non-secret config and, if it
+  // references a credential, decrypts it — the decrypted value is only ever
+  // sent here, to the runtime that needs it to actually connect, never
+  // embedded in a deploy push or any flow export.
+  rpc ResolveConnection(ResolveConnectionRequest) returns (ResolveConnectionResponse);
 }
 
 enum RuntimeKind {
@@ -131,4 +139,19 @@ message SubscribeFlow {
 
 message UnsubscribeFlow {
   string flow_id = 1;
+}
+
+message ResolveConnectionRequest {
+  string runtime_id = 1;
+  string session_token = 2;
+  string connection_id = 3;
+}
+
+// ResolveConnectionResponse carries a connection's type and non-secret
+// config always; credential_json is the decrypted credential value
+// (JSON-encoded) if the connection references one, otherwise empty.
+message ResolveConnectionResponse {
+  string type = 1;
+  string config_json = 2;
+  string credential_json = 3;
 }

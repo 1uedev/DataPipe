@@ -48,9 +48,11 @@ services:
     environment:
       CONTROLPLANE_GRPC_ADDR: "controlplane:9090"
       RUNTIME_HTTP_ADDR: ":8081"
+      RUNTIME_WEBHOOK_ADDR: ":8090"
       RUNTIME_ID: "server-runtime-1"
     ports:
       - "8082:8081"
+      - "8091:8090"
     depends_on:
       controlplane:
         condition: service_healthy

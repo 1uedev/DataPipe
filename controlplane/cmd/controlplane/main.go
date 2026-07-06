@@ -29,9 +29,20 @@ import (
 	"github.com/1uedev/DataPipe/controlplane/internal/health"
 	"github.com/1uedev/DataPipe/controlplane/internal/registry"
 
+	_ "github.com/1uedev/DataPipe/engine/nodes/busin"
+	_ "github.com/1uedev/DataPipe/engine/nodes/busout"
 	_ "github.com/1uedev/DataPipe/engine/nodes/debuglog"
+	_ "github.com/1uedev/DataPipe/engine/nodes/filewatch"
+	_ "github.com/1uedev/DataPipe/engine/nodes/httpin"
+	_ "github.com/1uedev/DataPipe/engine/nodes/httprequest"
+	_ "github.com/1uedev/DataPipe/engine/nodes/httpresponse"
 	_ "github.com/1uedev/DataPipe/engine/nodes/inject"
+	_ "github.com/1uedev/DataPipe/engine/nodes/mqttin"
+	_ "github.com/1uedev/DataPipe/engine/nodes/mqttout"
+	_ "github.com/1uedev/DataPipe/engine/nodes/schedule"
 	_ "github.com/1uedev/DataPipe/engine/nodes/set"
+	_ "github.com/1uedev/DataPipe/engine/nodes/sqlsink"
+	_ "github.com/1uedev/DataPipe/engine/nodes/sqlsource"
 )
 
 func main() {
@@ -64,6 +75,7 @@ func main() {
 	auditLog := audit.NewLog(database)
 	apiStore := api.NewStore(database)
 	reg := registry.NewService()
+	reg.SetConnectionResolver(connectionResolverAdapter{api.NewConnectionResolver(apiStore, vault)})
 
 	if err := bootstrapAdmin(ctx, authStore); err != nil {
 		slog.Error("failed to bootstrap admin user", "error", err)
@@ -170,6 +182,19 @@ func (a runtimeLister) ListRuntimes() []api.RuntimeInfo {
 		out[i] = api.RuntimeInfo{RuntimeID: s.RuntimeID, Kind: s.Kind, Version: s.Version, LastSeen: s.LastSeen}
 	}
 	return out
+}
+
+// connectionResolverAdapter adapts api.ConnectionResolver's own
+// ConnectionInfo type to registry.ConnectionInfo, the same
+// no-lower-package-depends-on-a-higher-one pattern as runtimeLister above.
+type connectionResolverAdapter struct{ inner *api.ConnectionResolver }
+
+func (a connectionResolverAdapter) ResolveConnection(ctx context.Context, connectionID string) (registry.ConnectionInfo, error) {
+	info, err := a.inner.ResolveConnection(ctx, connectionID)
+	if err != nil {
+		return registry.ConnectionInfo{}, err
+	}
+	return registry.ConnectionInfo{Type: info.Type, ConfigJSON: info.ConfigJSON, CredentialJSON: info.CredentialJSON}, nil
 }
 
 func envOr(key, fallback string) string {

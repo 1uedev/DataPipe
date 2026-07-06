@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import * as api from '../api/resources'
-import type { DebugEvent, DebugPin, ExecuteNodeResult } from '../api/types'
+import type { DebugEvent, DebugPin, ExecuteNodeResult, PreviewResult } from '../api/types'
 import { EMPTY_EVENTS, useDebugStore } from '../store/debug'
 import { JsonTree } from './JsonTree'
 import { useI18n } from '../i18n'
@@ -10,9 +10,11 @@ import { useI18n } from '../i18n'
 interface InspectorProps {
   flowId: string
   nodeId: string
+  // MAP-110 "fetch sample now" only applies to Source node types.
+  nodeKind?: 'source' | 'processor'
 }
 
-export function Inspector({ flowId, nodeId }: InspectorProps) {
+export function Inspector({ flowId, nodeId, nodeKind }: InspectorProps) {
   const { t } = useI18n()
   const events = useDebugStore((s) => s.nodeEvents[nodeId] ?? EMPTY_EVENTS)
   const [viewMode, setViewMode] = useState<'tree' | 'raw'>('tree')
@@ -21,6 +23,9 @@ export function Inspector({ flowId, nodeId }: InspectorProps) {
   const [runResult, setRunResult] = useState<ExecuteNodeResult | null>(null)
   const [running, setRunning] = useState(false)
   const [pins, setPins] = useState<DebugPin[]>([])
+  const [previewResult, setPreviewResult] = useState<PreviewResult | null>(null)
+  const [previewError, setPreviewError] = useState<string | null>(null)
+  const [previewing, setPreviewing] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -47,6 +52,20 @@ export function Inspector({ flowId, nodeId }: InspectorProps) {
     }
   }
 
+  async function onPreview() {
+    setPreviewing(true)
+    setPreviewError(null)
+    try {
+      const result = await api.previewNode(flowId, nodeId)
+      setPreviewResult(result)
+    } catch (err) {
+      setPreviewError(err instanceof Error ? err.message : String(err))
+      setPreviewResult(null)
+    } finally {
+      setPreviewing(false)
+    }
+  }
+
   async function onPin(port: string, value: unknown) {
     const pin = await api.setPin(flowId, nodeId, port, value)
     setPins((prev) => [...prev.filter((p) => p.port !== port), pin])
@@ -59,6 +78,36 @@ export function Inspector({ flowId, nodeId }: InspectorProps) {
 
   return (
     <div className="flex flex-col gap-4 text-xs">
+      {nodeKind === 'source' && (
+        <section>
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold">{t('inspector.preview.title')}</h3>
+            <button
+              onClick={() => void onPreview()}
+              disabled={previewing}
+              className="rounded border border-(--color-border) px-2 py-1 disabled:opacity-50"
+            >
+              {previewing ? t('inspector.preview.running') : t('inspector.preview.button')}
+            </button>
+          </div>
+          {previewError && <p className="mt-2 text-red-600">{previewError}</p>}
+          {previewResult?.error && <p className="mt-2 text-red-600">{previewResult.error}</p>}
+          {previewResult && !previewResult.error && (
+            <div className="mt-2 flex flex-col gap-1">
+              {previewResult.records.length === 0 && (
+                <p className="text-(--color-text-muted)">{t('inspector.live.empty')}</p>
+              )}
+              {previewResult.records.map((rec, i) => (
+                <div key={`${rec.port}-${i}`} className="rounded border border-(--color-border) p-1.5">
+                  <span className="font-mono font-medium">{rec.port}</span>
+                  <JsonTree value={rec.datagram} />
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
       <section>
         <h3 className="font-semibold">{t('inspector.run.title')}</h3>
         <label className="mt-1 block">

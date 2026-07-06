@@ -67,6 +67,11 @@ type Deployment struct {
 	debugSink   DebugSink
 	metricsStop chan struct{}
 	stopOnce    sync.Once
+
+	// connResolver resolves a node's configured connection id (Increment 6,
+	// CON-110); defaults to NoopConnectionResolver so nodes that need one
+	// fail with a clear error rather than a nil-pointer panic.
+	connResolver ConnectionResolver
 }
 
 // NewDeployment creates an empty deployment ready for Deploy. A nil logger uses
@@ -85,9 +90,22 @@ func NewDeployment(logger *slog.Logger) *Deployment {
 		limiters:      map[string]*rateLimiter{},
 		debugSink:     NoopDebugSink,
 		metricsStop:   make(chan struct{}),
+		connResolver:  NoopConnectionResolver,
 	}
 	go d.pollWireMetrics()
 	return d
+}
+
+// SetConnectionResolver attaches (or detaches, with nil) the resolver used
+// to look up a node's configured connection (Increment 6, CON-110). Safe to
+// call at any time, including while nodes are running.
+func (g *Deployment) SetConnectionResolver(resolver ConnectionResolver) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if resolver == nil {
+		resolver = NoopConnectionResolver
+	}
+	g.connResolver = resolver
 }
 
 // SetDebugSink attaches (or detaches, with nil) the live-debugging sink that
@@ -405,6 +423,7 @@ func (g *Deployment) startNode(ctx context.Context, n *Node, info NodeTypeInfo, 
 
 	nodeCtx, cancel := context.WithCancel(ctx)
 	nodeCtx = withDebugContext(nodeCtx, ring, limiter, g.debugSink, g.flowID, n.ID)
+	nodeCtx = WithConnection(nodeCtx, g.connResolver, n.Connection)
 	metrics := &NodeMetrics{}
 	runner := &nodeRunner{
 		id:          n.ID,

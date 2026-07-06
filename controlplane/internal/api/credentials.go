@@ -73,6 +73,19 @@ func (s *Store) getCredentialProjectID(ctx context.Context, id string) (string, 
 	return projectID, nil
 }
 
+// GetCredentialSealed returns a credential's still-encrypted envelope. The
+// one legitimate consumer is ConnectionResolver (Increment 6, CON-110):
+// decrypting is only ever done to hand the plaintext to the runtime that
+// actually needs it to connect — never through any HTTP handler.
+func (s *Store) GetCredentialSealed(ctx context.Context, id string) (*crypto.Sealed, error) {
+	var sealed crypto.Sealed
+	row := s.db.QueryRowContext(ctx, `SELECT key_version, wrapped_dek, wrapped_dek_nonce, ciphertext, nonce FROM credentials WHERE id = ?`, id)
+	if err := row.Scan(&sealed.KeyVersion, &sealed.WrappedDEK, &sealed.WrappedDEKNonce, &sealed.Ciphertext, &sealed.Nonce); err != nil {
+		return nil, err
+	}
+	return &sealed, nil
+}
+
 func (s *Store) DeleteCredential(ctx context.Context, id string) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM credentials WHERE id = ?`, id)
 	return err

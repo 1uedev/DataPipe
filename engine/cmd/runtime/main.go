@@ -18,10 +18,22 @@ import (
 	"github.com/1uedev/DataPipe/engine/flow"
 	"github.com/1uedev/DataPipe/engine/internal/health"
 	"github.com/1uedev/DataPipe/engine/internal/runtimeclient"
+	"github.com/1uedev/DataPipe/engine/webhook"
 
+	_ "github.com/1uedev/DataPipe/engine/nodes/busin"
+	_ "github.com/1uedev/DataPipe/engine/nodes/busout"
 	_ "github.com/1uedev/DataPipe/engine/nodes/debuglog"
+	_ "github.com/1uedev/DataPipe/engine/nodes/filewatch"
+	_ "github.com/1uedev/DataPipe/engine/nodes/httpin"
+	_ "github.com/1uedev/DataPipe/engine/nodes/httprequest"
+	_ "github.com/1uedev/DataPipe/engine/nodes/httpresponse"
 	_ "github.com/1uedev/DataPipe/engine/nodes/inject"
+	_ "github.com/1uedev/DataPipe/engine/nodes/mqttin"
+	_ "github.com/1uedev/DataPipe/engine/nodes/mqttout"
+	_ "github.com/1uedev/DataPipe/engine/nodes/schedule"
 	_ "github.com/1uedev/DataPipe/engine/nodes/set"
+	_ "github.com/1uedev/DataPipe/engine/nodes/sqlsink"
+	_ "github.com/1uedev/DataPipe/engine/nodes/sqlsource"
 )
 
 const version = "0.0.0-dev"
@@ -31,6 +43,7 @@ func main() {
 	defer stop()
 
 	httpAddr := envOr("RUNTIME_HTTP_ADDR", ":8081")
+	webhookAddr := envOr("RUNTIME_WEBHOOK_ADDR", ":8090")
 	controlPlaneAddr := envOr("CONTROLPLANE_GRPC_ADDR", "localhost:9090")
 	runtimeID := envOr("RUNTIME_ID", uuid.NewString())
 
@@ -41,6 +54,9 @@ func main() {
 	debugSink := runtimeclient.NewDebugSink()
 	deployment.SetDebugSink(debugSink)
 
+	connResolver := runtimeclient.NewConnectionResolver()
+	deployment.SetConnectionResolver(connResolver)
+
 	httpServer := &http.Server{Addr: httpAddr, Handler: healthSrv.Handler()}
 	go func() {
 		slog.Info("runtime health endpoint listening", "addr", httpAddr)
@@ -50,8 +66,19 @@ func main() {
 		}
 	}()
 
+	// Shared across every "http-in" node (CON-300): one runtime-wide
+	// listener rather than one per node.
+	webhookServer := &http.Server{Addr: webhookAddr, Handler: webhook.DefaultRegistry}
 	go func() {
-		err := runtimeclient.Run(ctx, controlPlaneAddr, runtimeID, version, healthSrv.SetReady, applyDeploy(deployment), debugSink, deployment)
+		slog.Info("runtime webhook endpoint listening", "addr", webhookAddr)
+		if err := webhookServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("webhook server failed", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	go func() {
+		err := runtimeclient.Run(ctx, controlPlaneAddr, runtimeID, version, healthSrv.SetReady, applyDeploy(deployment), debugSink, deployment, connResolver)
 		if err != nil && ctx.Err() == nil {
 			slog.Error("runtime client stopped unexpectedly", "error", err)
 		}
@@ -62,6 +89,7 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = httpServer.Shutdown(shutdownCtx)
+	_ = webhookServer.Shutdown(shutdownCtx)
 }
 
 // applyDeploy parses and applies one pushed flow onto deployment, hot-

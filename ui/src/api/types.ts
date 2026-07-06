@@ -44,6 +44,18 @@ export interface Connection {
   credentialId: string | null
 }
 
+// CON-140 "test connection" result.
+export interface ConnectionTestResult {
+  ok: boolean
+  message: string
+}
+
+// MAP-110 "fetch sample now" result.
+export interface PreviewResult {
+  records: { port: string; datagram: unknown }[]
+  error: string | null
+}
+
 export interface CredentialMeta {
   id: string
   projectId: string

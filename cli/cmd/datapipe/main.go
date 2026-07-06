@@ -15,9 +15,20 @@ import (
 
 	"github.com/1uedev/DataPipe/engine/flow"
 
+	_ "github.com/1uedev/DataPipe/engine/nodes/busin"
+	_ "github.com/1uedev/DataPipe/engine/nodes/busout"
 	_ "github.com/1uedev/DataPipe/engine/nodes/debuglog"
+	_ "github.com/1uedev/DataPipe/engine/nodes/filewatch"
+	_ "github.com/1uedev/DataPipe/engine/nodes/httpin"
+	_ "github.com/1uedev/DataPipe/engine/nodes/httprequest"
+	_ "github.com/1uedev/DataPipe/engine/nodes/httpresponse"
 	_ "github.com/1uedev/DataPipe/engine/nodes/inject"
+	_ "github.com/1uedev/DataPipe/engine/nodes/mqttin"
+	_ "github.com/1uedev/DataPipe/engine/nodes/mqttout"
+	_ "github.com/1uedev/DataPipe/engine/nodes/schedule"
 	_ "github.com/1uedev/DataPipe/engine/nodes/set"
+	_ "github.com/1uedev/DataPipe/engine/nodes/sqlsink"
+	_ "github.com/1uedev/DataPipe/engine/nodes/sqlsource"
 )
 
 const version = "0.0.0-dev"

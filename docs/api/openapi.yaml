@@ -402,6 +402,28 @@ paths:
         "204": { description: Deleted }
         "403": { $ref: "#/components/responses/Forbidden" }
 
+  /connections/{connectionId}/test:
+    parameters:
+      - name: connectionId
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: >
+        CON-140 "test connection": the control plane decrypts the
+        connection's credential server-side and attempts a real, bounded
+        connectivity check (currently mqtt and postgres; other types
+        report success with an explanatory message). The decrypted
+        credential is never returned in the response (SEC-120).
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConnectionTestResult" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /projects/{projectId}/credentials:
     parameters:
       - $ref: "#/components/parameters/ProjectId"
@@ -528,6 +550,28 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ExecuteNodeResult" }
         "400": { description: Unknown node id, or the node type is a Source (out of scope for design-time execution) }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /flows/{flowId}/nodes/{nodeId}/preview:
+    post:
+      summary: >
+        MAP-110 "fetch sample now": run one Source node type from the
+        flow's current draft in isolation, collecting up to a bounded
+        number of emitted datagrams (or until a timeout), without
+        deploying the flow.
+      parameters:
+        - $ref: "#/components/parameters/FlowId"
+        - name: nodeId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PreviewResult" }
+        "400": { description: Unknown node id, or the node type is not a Source }
         "403": { $ref: "#/components/responses/Forbidden" }
 
   /flows/{flowId}/debug/pins:
@@ -757,6 +801,26 @@ components:
       type: object
       properties:
         outputs:
+          type: array
+          items:
+            type: object
+            properties:
+              port: { type: string }
+              datagram: { type: object }
+        error:
+          type: string
+          nullable: true
+
+    ConnectionTestResult:
+      type: object
+      properties:
+        ok: { type: boolean }
+        message: { type: string }
+
+    PreviewResult:
+      type: object
+      properties:
+        records:
           type: array
           items:
             type: object

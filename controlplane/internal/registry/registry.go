@@ -6,6 +6,7 @@ package registry
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -15,6 +16,21 @@ import (
 
 	"github.com/1uedev/DataPipe/controlplane/internal/debughub"
 )
+
+// ConnectionInfo is a connection's resolved type/config and (if it
+// references one) decrypted credential (Increment 6, CON-110/SEC-120).
+type ConnectionInfo struct {
+	Type           string
+	ConfigJSON     json.RawMessage
+	CredentialJSON json.RawMessage
+}
+
+// ConnectionResolver looks up a connection and decrypts its credential if
+// it has one. Implemented by controlplane/internal/api.ConnectionResolver;
+// kept as an interface here so registry never depends on api/crypto.
+type ConnectionResolver interface {
+	ResolveConnection(ctx context.Context, connectionID string) (ConnectionInfo, error)
+}
 
 // deployChanBuffer bounds how many pending deploy commands a runtime can
 // have queued before DeployFlow reports it as unavailable.
@@ -34,9 +50,10 @@ type runtimeState struct {
 type Service struct {
 	runtimev1.UnimplementedRuntimeRegistryServiceServer
 
-	mu       sync.Mutex
-	runtimes map[string]*runtimeState
-	debugHub *debughub.Hub
+	mu           sync.Mutex
+	runtimes     map[string]*runtimeState
+	debugHub     *debughub.Hub
+	connResolver ConnectionResolver
 }
 
 func NewService() *Service {
@@ -48,6 +65,41 @@ func NewService() *Service {
 // DebugHub exposes the live-debugging hub (Increment 5) so the REST/WS
 // layer can subscribe browsers and look up cached full payloads.
 func (s *Service) DebugHub() *debughub.Hub { return s.debugHub }
+
+// SetConnectionResolver wires in the resolver used by the ResolveConnection
+// RPC (Increment 6, CON-110). Must be called before any runtime dials in
+// with a node that references a connection.
+func (s *Service) SetConnectionResolver(r ConnectionResolver) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.connResolver = r
+}
+
+// ResolveConnection is called by a runtime whenever a connector node needs
+// its configured connection (Increment 6, CON-110/SEC-120): the decrypted
+// credential, if any, is returned only here, to the runtime that asked —
+// never embedded in a deploy push.
+func (s *Service) ResolveConnection(ctx context.Context, req *runtimev1.ResolveConnectionRequest) (*runtimev1.ResolveConnectionResponse, error) {
+	if !s.validSession(req.GetRuntimeId(), req.GetSessionToken()) {
+		return nil, fmt.Errorf("unknown runtime or session")
+	}
+	s.mu.Lock()
+	resolver := s.connResolver
+	s.mu.Unlock()
+	if resolver == nil {
+		return nil, fmt.Errorf("connection resolution not configured")
+	}
+
+	info, err := resolver.ResolveConnection(ctx, req.GetConnectionId())
+	if err != nil {
+		return nil, err
+	}
+	return &runtimev1.ResolveConnectionResponse{
+		Type:           info.Type,
+		ConfigJson:     string(info.ConfigJSON),
+		CredentialJson: string(info.CredentialJSON),
+	}, nil
+}
 
 func (s *Service) validSession(runtimeID, sessionToken string) bool {
 	s.mu.Lock()

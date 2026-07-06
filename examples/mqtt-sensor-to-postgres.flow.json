@@ -1,0 +1,43 @@
+{
+  "formatVersion": 1,
+  "kind": "flow",
+  "id": "flow_mqtt_sensor_to_postgres_demo",
+  "name": "MQTT sensor -> Postgres demo",
+  "description": "Development-Plan Increment 6 'Done when' demo flow. The spec calls for 'MQTT sensor -> window avg -> Postgres'; the real window/aggregate processor (PROC-210) is Increment 7 scope, so this uses a 'set' node as a documented stand-in for the aggregation step. Requires a 'sensor-mqtt' connection (type mqtt) and a 'demo-postgres' connection (type postgres) to be created in the target project before deploy.",
+  "mode": "streaming",
+  "graph": {
+    "nodes": [
+      {
+        "id": "n1",
+        "type": "mqtt-in",
+        "typeVersion": 1,
+        "name": "Sensor readings",
+        "connection": "sensor-mqtt",
+        "config": { "topic": "sensors/+/temperature", "qos": 0 }
+      },
+      {
+        "id": "n2",
+        "type": "set",
+        "typeVersion": 1,
+        "name": "Stand-in for window avg (PROC-210, Increment 7)",
+        "config": { "sets": [ { "path": "aggregation", "value": "avg-window-placeholder" } ] }
+      },
+      {
+        "id": "n3",
+        "type": "sql-sink",
+        "typeVersion": 1,
+        "name": "Insert into readings",
+        "connection": "demo-postgres",
+        "config": {
+          "mode": "insert",
+          "table": "sensor_readings",
+          "columns": [ "sensor_id", "celsius", "aggregation" ]
+        }
+      }
+    ],
+    "wires": [
+      { "id": "w1", "from": { "node": "n1", "port": "out" }, "to": { "node": "n2", "port": "in" } },
+      { "id": "w2", "from": { "node": "n2", "port": "out" }, "to": { "node": "n3", "port": "in" } }
+    ]
+  }
+}

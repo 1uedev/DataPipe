@@ -2,6 +2,7 @@ import { request } from './client'
 import type {
   AuditEntry,
   Connection,
+  ConnectionTestResult,
   CredentialMeta,
   DebugPin,
   ExecuteNodeResult,
@@ -9,6 +10,7 @@ import type {
   FlowFileContent,
   FlowVersion,
   NodeType,
+  PreviewResult,
   Project,
   RuntimeInfo,
   User,
@@ -85,6 +87,26 @@ export function listConnections(projectId: string) {
   return request<Connection[]>(`/projects/${projectId}/connections`)
 }
 
+export function createConnection(
+  projectId: string,
+  name: string,
+  type: string,
+  config: Record<string, unknown>,
+) {
+  return request<Connection>(`/projects/${projectId}/connections`, {
+    method: 'POST',
+    body: { name, type, config },
+  })
+}
+
+export function deleteConnection(connectionId: string) {
+  return request<void>(`/connections/${connectionId}`, { method: 'DELETE' })
+}
+
+export function testConnection(connectionId: string) {
+  return request<ConnectionTestResult>(`/connections/${connectionId}/test`, { method: 'POST' })
+}
+
 export function listCredentials(projectId: string) {
   return request<CredentialMeta[]>(`/projects/${projectId}/credentials`)
 }
@@ -130,4 +152,10 @@ export function deletePin(flowId: string, nodeId: string, port: string) {
 
 export function loadFullDebugEvent(flowId: string, eventId: string) {
   return request<{ valueJson: string }>(`/flows/${flowId}/debug/events/${eventId}`)
+}
+
+// --- Increment 6: MAP-110 "fetch sample now" ---
+
+export function previewNode(flowId: string, nodeId: string) {
+  return request<PreviewResult>(`/flows/${flowId}/nodes/${nodeId}/preview`, { method: 'POST' })
 }
