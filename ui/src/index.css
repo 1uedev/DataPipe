@@ -38,3 +38,11 @@ body {
   background: var(--color-bg);
   color: var(--color-text);
 }
+
+/* DBG-120: wires visibly pulse as datagrams pass. Applied transiently
+   (ui/src/store/debug.ts pulsingSourceWires) on top of React Flow's own
+   dash animation for a clearer, brighter flash. */
+.debug-pulse path {
+  stroke: var(--color-accent) !important;
+  stroke-width: 2.5 !important;
+}

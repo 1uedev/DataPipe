@@ -397,6 +397,514 @@ func (x *DeployStreamResponse) GetFlowJson() string {
 	return ""
 }
 
+// DebugChannelRequest is one message the runtime pushes on the DebugChannel:
+// either a single node/wire debug event or a periodic wire-metrics snapshot.
+type DebugChannelRequest struct {
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	RuntimeId    string                 `protobuf:"bytes,1,opt,name=runtime_id,json=runtimeId,proto3" json:"runtime_id,omitempty"`
+	SessionToken string                 `protobuf:"bytes,2,opt,name=session_token,json=sessionToken,proto3" json:"session_token,omitempty"`
+	// Types that are valid to be assigned to Payload:
+	//
+	//	*DebugChannelRequest_Event
+	//	*DebugChannelRequest_WireMetrics
+	Payload       isDebugChannelRequest_Payload `protobuf_oneof:"payload"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DebugChannelRequest) Reset() {
+	*x = DebugChannelRequest{}
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DebugChannelRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DebugChannelRequest) ProtoMessage() {}
+
+func (x *DebugChannelRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DebugChannelRequest.ProtoReflect.Descriptor instead.
+func (*DebugChannelRequest) Descriptor() ([]byte, []int) {
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *DebugChannelRequest) GetRuntimeId() string {
+	if x != nil {
+		return x.RuntimeId
+	}
+	return ""
+}
+
+func (x *DebugChannelRequest) GetSessionToken() string {
+	if x != nil {
+		return x.SessionToken
+	}
+	return ""
+}
+
+func (x *DebugChannelRequest) GetPayload() isDebugChannelRequest_Payload {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
+func (x *DebugChannelRequest) GetEvent() *DebugEvent {
+	if x != nil {
+		if x, ok := x.Payload.(*DebugChannelRequest_Event); ok {
+			return x.Event
+		}
+	}
+	return nil
+}
+
+func (x *DebugChannelRequest) GetWireMetrics() *WireMetricsSnapshot {
+	if x != nil {
+		if x, ok := x.Payload.(*DebugChannelRequest_WireMetrics); ok {
+			return x.WireMetrics
+		}
+	}
+	return nil
+}
+
+type isDebugChannelRequest_Payload interface {
+	isDebugChannelRequest_Payload()
+}
+
+type DebugChannelRequest_Event struct {
+	Event *DebugEvent `protobuf:"bytes,3,opt,name=event,proto3,oneof"`
+}
+
+type DebugChannelRequest_WireMetrics struct {
+	WireMetrics *WireMetricsSnapshot `protobuf:"bytes,4,opt,name=wire_metrics,json=wireMetrics,proto3,oneof"`
+}
+
+func (*DebugChannelRequest_Event) isDebugChannelRequest_Payload() {}
+
+func (*DebugChannelRequest_WireMetrics) isDebugChannelRequest_Payload() {}
+
+// DebugEvent carries one datagram observed at a node's input, output, or a
+// named debug/sidebar node (DBG-100/110). value_json is the full-fidelity
+// JSON encoding of the observed payload; the control plane truncates its own
+// copy before relaying to browsers (DBG-110 "load full on demand") — the
+// runtime always sends full fidelity since this channel is already sampled
+// (DBG-170).
+type DebugEvent struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	FlowId        string                 `protobuf:"bytes,2,opt,name=flow_id,json=flowId,proto3" json:"flow_id,omitempty"`
+	NodeId        string                 `protobuf:"bytes,3,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	Port          string                 `protobuf:"bytes,4,opt,name=port,proto3" json:"port,omitempty"`
+	Direction     string                 `protobuf:"bytes,5,opt,name=direction,proto3" json:"direction,omitempty"` // "in" | "out" | "sidebar"
+	Label         string                 `protobuf:"bytes,6,opt,name=label,proto3" json:"label,omitempty"`
+	TimeUnixMs    int64                  `protobuf:"varint,7,opt,name=time_unix_ms,json=timeUnixMs,proto3" json:"time_unix_ms,omitempty"`
+	DatagramId    string                 `protobuf:"bytes,8,opt,name=datagram_id,json=datagramId,proto3" json:"datagram_id,omitempty"`
+	CorrelationId string                 `protobuf:"bytes,9,opt,name=correlation_id,json=correlationId,proto3" json:"correlation_id,omitempty"`
+	CausationId   string                 `protobuf:"bytes,10,opt,name=causation_id,json=causationId,proto3" json:"causation_id,omitempty"`
+	Quality       string                 `protobuf:"bytes,11,opt,name=quality,proto3" json:"quality,omitempty"`
+	ValueJson     string                 `protobuf:"bytes,12,opt,name=value_json,json=valueJson,proto3" json:"value_json,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DebugEvent) Reset() {
+	*x = DebugEvent{}
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DebugEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DebugEvent) ProtoMessage() {}
+
+func (x *DebugEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DebugEvent.ProtoReflect.Descriptor instead.
+func (*DebugEvent) Descriptor() ([]byte, []int) {
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *DebugEvent) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *DebugEvent) GetFlowId() string {
+	if x != nil {
+		return x.FlowId
+	}
+	return ""
+}
+
+func (x *DebugEvent) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+func (x *DebugEvent) GetPort() string {
+	if x != nil {
+		return x.Port
+	}
+	return ""
+}
+
+func (x *DebugEvent) GetDirection() string {
+	if x != nil {
+		return x.Direction
+	}
+	return ""
+}
+
+func (x *DebugEvent) GetLabel() string {
+	if x != nil {
+		return x.Label
+	}
+	return ""
+}
+
+func (x *DebugEvent) GetTimeUnixMs() int64 {
+	if x != nil {
+		return x.TimeUnixMs
+	}
+	return 0
+}
+
+func (x *DebugEvent) GetDatagramId() string {
+	if x != nil {
+		return x.DatagramId
+	}
+	return ""
+}
+
+func (x *DebugEvent) GetCorrelationId() string {
+	if x != nil {
+		return x.CorrelationId
+	}
+	return ""
+}
+
+func (x *DebugEvent) GetCausationId() string {
+	if x != nil {
+		return x.CausationId
+	}
+	return ""
+}
+
+func (x *DebugEvent) GetQuality() string {
+	if x != nil {
+		return x.Quality
+	}
+	return ""
+}
+
+func (x *DebugEvent) GetValueJson() string {
+	if x != nil {
+		return x.ValueJson
+	}
+	return ""
+}
+
+// WireMetricsSnapshot reports a wire's cumulative delivered/dropped counts
+// (BUS-110) for DBG-120's live counters/rates; sent periodically (not per
+// datagram) so it stays cheap at any throughput.
+type WireMetricsSnapshot struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	FlowId        string                 `protobuf:"bytes,1,opt,name=flow_id,json=flowId,proto3" json:"flow_id,omitempty"`
+	FromNode      string                 `protobuf:"bytes,2,opt,name=from_node,json=fromNode,proto3" json:"from_node,omitempty"`
+	FromPort      string                 `protobuf:"bytes,3,opt,name=from_port,json=fromPort,proto3" json:"from_port,omitempty"`
+	ToNode        string                 `protobuf:"bytes,4,opt,name=to_node,json=toNode,proto3" json:"to_node,omitempty"`
+	ToPort        string                 `protobuf:"bytes,5,opt,name=to_port,json=toPort,proto3" json:"to_port,omitempty"`
+	Delivered     uint64                 `protobuf:"varint,6,opt,name=delivered,proto3" json:"delivered,omitempty"`
+	Dropped       uint64                 `protobuf:"varint,7,opt,name=dropped,proto3" json:"dropped,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WireMetricsSnapshot) Reset() {
+	*x = WireMetricsSnapshot{}
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WireMetricsSnapshot) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WireMetricsSnapshot) ProtoMessage() {}
+
+func (x *WireMetricsSnapshot) ProtoReflect() protoreflect.Message {
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WireMetricsSnapshot.ProtoReflect.Descriptor instead.
+func (*WireMetricsSnapshot) Descriptor() ([]byte, []int) {
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *WireMetricsSnapshot) GetFlowId() string {
+	if x != nil {
+		return x.FlowId
+	}
+	return ""
+}
+
+func (x *WireMetricsSnapshot) GetFromNode() string {
+	if x != nil {
+		return x.FromNode
+	}
+	return ""
+}
+
+func (x *WireMetricsSnapshot) GetFromPort() string {
+	if x != nil {
+		return x.FromPort
+	}
+	return ""
+}
+
+func (x *WireMetricsSnapshot) GetToNode() string {
+	if x != nil {
+		return x.ToNode
+	}
+	return ""
+}
+
+func (x *WireMetricsSnapshot) GetToPort() string {
+	if x != nil {
+		return x.ToPort
+	}
+	return ""
+}
+
+func (x *WireMetricsSnapshot) GetDelivered() uint64 {
+	if x != nil {
+		return x.Delivered
+	}
+	return 0
+}
+
+func (x *WireMetricsSnapshot) GetDropped() uint64 {
+	if x != nil {
+		return x.Dropped
+	}
+	return 0
+}
+
+// DebugChannelResponse is one message the control plane pushes on the
+// DebugChannel: a subscribe/unsubscribe request naming the flow a browser
+// client wants to inspect. The runtime only captures/forwards live events
+// for subscribed flows (DBG-170: "sampled/rate-limited to protect the
+// runtime").
+type DebugChannelResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Payload:
+	//
+	//	*DebugChannelResponse_Subscribe
+	//	*DebugChannelResponse_Unsubscribe
+	Payload       isDebugChannelResponse_Payload `protobuf_oneof:"payload"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DebugChannelResponse) Reset() {
+	*x = DebugChannelResponse{}
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DebugChannelResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DebugChannelResponse) ProtoMessage() {}
+
+func (x *DebugChannelResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DebugChannelResponse.ProtoReflect.Descriptor instead.
+func (*DebugChannelResponse) Descriptor() ([]byte, []int) {
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *DebugChannelResponse) GetPayload() isDebugChannelResponse_Payload {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
+func (x *DebugChannelResponse) GetSubscribe() *SubscribeFlow {
+	if x != nil {
+		if x, ok := x.Payload.(*DebugChannelResponse_Subscribe); ok {
+			return x.Subscribe
+		}
+	}
+	return nil
+}
+
+func (x *DebugChannelResponse) GetUnsubscribe() *UnsubscribeFlow {
+	if x != nil {
+		if x, ok := x.Payload.(*DebugChannelResponse_Unsubscribe); ok {
+			return x.Unsubscribe
+		}
+	}
+	return nil
+}
+
+type isDebugChannelResponse_Payload interface {
+	isDebugChannelResponse_Payload()
+}
+
+type DebugChannelResponse_Subscribe struct {
+	Subscribe *SubscribeFlow `protobuf:"bytes,1,opt,name=subscribe,proto3,oneof"`
+}
+
+type DebugChannelResponse_Unsubscribe struct {
+	Unsubscribe *UnsubscribeFlow `protobuf:"bytes,2,opt,name=unsubscribe,proto3,oneof"`
+}
+
+func (*DebugChannelResponse_Subscribe) isDebugChannelResponse_Payload() {}
+
+func (*DebugChannelResponse_Unsubscribe) isDebugChannelResponse_Payload() {}
+
+type SubscribeFlow struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	FlowId        string                 `protobuf:"bytes,1,opt,name=flow_id,json=flowId,proto3" json:"flow_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SubscribeFlow) Reset() {
+	*x = SubscribeFlow{}
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SubscribeFlow) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SubscribeFlow) ProtoMessage() {}
+
+func (x *SubscribeFlow) ProtoReflect() protoreflect.Message {
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SubscribeFlow.ProtoReflect.Descriptor instead.
+func (*SubscribeFlow) Descriptor() ([]byte, []int) {
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *SubscribeFlow) GetFlowId() string {
+	if x != nil {
+		return x.FlowId
+	}
+	return ""
+}
+
+type UnsubscribeFlow struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	FlowId        string                 `protobuf:"bytes,1,opt,name=flow_id,json=flowId,proto3" json:"flow_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UnsubscribeFlow) Reset() {
+	*x = UnsubscribeFlow{}
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UnsubscribeFlow) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UnsubscribeFlow) ProtoMessage() {}
+
+func (x *UnsubscribeFlow) ProtoReflect() protoreflect.Message {
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UnsubscribeFlow.ProtoReflect.Descriptor instead.
+func (*UnsubscribeFlow) Descriptor() ([]byte, []int) {
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *UnsubscribeFlow) GetFlowId() string {
+	if x != nil {
+		return x.FlowId
+	}
+	return ""
+}
+
 var File_datapipe_runtime_v1_runtime_proto protoreflect.FileDescriptor
 
 const file_datapipe_runtime_v1_runtime_proto_rawDesc = "" +
@@ -423,15 +931,57 @@ const file_datapipe_runtime_v1_runtime_proto_rawDesc = "" +
 	"\x14DeployStreamResponse\x12\x17\n" +
 	"\aflow_id\x18\x01 \x01(\tR\x06flowId\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\x03R\aversion\x12\x1b\n" +
-	"\tflow_json\x18\x03 \x01(\tR\bflowJson*[\n" +
+	"\tflow_json\x18\x03 \x01(\tR\bflowJson\"\xec\x01\n" +
+	"\x13DebugChannelRequest\x12\x1d\n" +
+	"\n" +
+	"runtime_id\x18\x01 \x01(\tR\truntimeId\x12#\n" +
+	"\rsession_token\x18\x02 \x01(\tR\fsessionToken\x127\n" +
+	"\x05event\x18\x03 \x01(\v2\x1f.datapipe.runtime.v1.DebugEventH\x00R\x05event\x12M\n" +
+	"\fwire_metrics\x18\x04 \x01(\v2(.datapipe.runtime.v1.WireMetricsSnapshotH\x00R\vwireMetricsB\t\n" +
+	"\apayload\"\xdc\x02\n" +
+	"\n" +
+	"DebugEvent\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
+	"\aflow_id\x18\x02 \x01(\tR\x06flowId\x12\x17\n" +
+	"\anode_id\x18\x03 \x01(\tR\x06nodeId\x12\x12\n" +
+	"\x04port\x18\x04 \x01(\tR\x04port\x12\x1c\n" +
+	"\tdirection\x18\x05 \x01(\tR\tdirection\x12\x14\n" +
+	"\x05label\x18\x06 \x01(\tR\x05label\x12 \n" +
+	"\ftime_unix_ms\x18\a \x01(\x03R\n" +
+	"timeUnixMs\x12\x1f\n" +
+	"\vdatagram_id\x18\b \x01(\tR\n" +
+	"datagramId\x12%\n" +
+	"\x0ecorrelation_id\x18\t \x01(\tR\rcorrelationId\x12!\n" +
+	"\fcausation_id\x18\n" +
+	" \x01(\tR\vcausationId\x12\x18\n" +
+	"\aquality\x18\v \x01(\tR\aquality\x12\x1d\n" +
+	"\n" +
+	"value_json\x18\f \x01(\tR\tvalueJson\"\xd2\x01\n" +
+	"\x13WireMetricsSnapshot\x12\x17\n" +
+	"\aflow_id\x18\x01 \x01(\tR\x06flowId\x12\x1b\n" +
+	"\tfrom_node\x18\x02 \x01(\tR\bfromNode\x12\x1b\n" +
+	"\tfrom_port\x18\x03 \x01(\tR\bfromPort\x12\x17\n" +
+	"\ato_node\x18\x04 \x01(\tR\x06toNode\x12\x17\n" +
+	"\ato_port\x18\x05 \x01(\tR\x06toPort\x12\x1c\n" +
+	"\tdelivered\x18\x06 \x01(\x04R\tdelivered\x12\x18\n" +
+	"\adropped\x18\a \x01(\x04R\adropped\"\xaf\x01\n" +
+	"\x14DebugChannelResponse\x12B\n" +
+	"\tsubscribe\x18\x01 \x01(\v2\".datapipe.runtime.v1.SubscribeFlowH\x00R\tsubscribe\x12H\n" +
+	"\vunsubscribe\x18\x02 \x01(\v2$.datapipe.runtime.v1.UnsubscribeFlowH\x00R\vunsubscribeB\t\n" +
+	"\apayload\"(\n" +
+	"\rSubscribeFlow\x12\x17\n" +
+	"\aflow_id\x18\x01 \x01(\tR\x06flowId\"*\n" +
+	"\x0fUnsubscribeFlow\x12\x17\n" +
+	"\aflow_id\x18\x01 \x01(\tR\x06flowId*[\n" +
 	"\vRuntimeKind\x12\x1c\n" +
 	"\x18RUNTIME_KIND_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13RUNTIME_KIND_SERVER\x10\x01\x12\x15\n" +
-	"\x11RUNTIME_KIND_EDGE\x10\x022\xb4\x02\n" +
+	"\x11RUNTIME_KIND_EDGE\x10\x022\x9d\x03\n" +
 	"\x16RuntimeRegistryService\x12W\n" +
 	"\bRegister\x12$.datapipe.runtime.v1.RegisterRequest\x1a%.datapipe.runtime.v1.RegisterResponse\x12Z\n" +
 	"\tHeartbeat\x12%.datapipe.runtime.v1.HeartbeatRequest\x1a&.datapipe.runtime.v1.HeartbeatResponse\x12e\n" +
-	"\fDeployStream\x12(.datapipe.runtime.v1.DeployStreamRequest\x1a).datapipe.runtime.v1.DeployStreamResponse0\x01BGZEgithub.com/1uedev/DataPipe/proto/gen/go/datapipe/runtime/v1;runtimev1b\x06proto3"
+	"\fDeployStream\x12(.datapipe.runtime.v1.DeployStreamRequest\x1a).datapipe.runtime.v1.DeployStreamResponse0\x01\x12g\n" +
+	"\fDebugChannel\x12(.datapipe.runtime.v1.DebugChannelRequest\x1a).datapipe.runtime.v1.DebugChannelResponse(\x010\x01BGZEgithub.com/1uedev/DataPipe/proto/gen/go/datapipe/runtime/v1;runtimev1b\x06proto3"
 
 var (
 	file_datapipe_runtime_v1_runtime_proto_rawDescOnce sync.Once
@@ -446,7 +996,7 @@ func file_datapipe_runtime_v1_runtime_proto_rawDescGZIP() []byte {
 }
 
 var file_datapipe_runtime_v1_runtime_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_datapipe_runtime_v1_runtime_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_datapipe_runtime_v1_runtime_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_datapipe_runtime_v1_runtime_proto_goTypes = []any{
 	(RuntimeKind)(0),             // 0: datapipe.runtime.v1.RuntimeKind
 	(*RegisterRequest)(nil),      // 1: datapipe.runtime.v1.RegisterRequest
@@ -455,20 +1005,32 @@ var file_datapipe_runtime_v1_runtime_proto_goTypes = []any{
 	(*HeartbeatResponse)(nil),    // 4: datapipe.runtime.v1.HeartbeatResponse
 	(*DeployStreamRequest)(nil),  // 5: datapipe.runtime.v1.DeployStreamRequest
 	(*DeployStreamResponse)(nil), // 6: datapipe.runtime.v1.DeployStreamResponse
+	(*DebugChannelRequest)(nil),  // 7: datapipe.runtime.v1.DebugChannelRequest
+	(*DebugEvent)(nil),           // 8: datapipe.runtime.v1.DebugEvent
+	(*WireMetricsSnapshot)(nil),  // 9: datapipe.runtime.v1.WireMetricsSnapshot
+	(*DebugChannelResponse)(nil), // 10: datapipe.runtime.v1.DebugChannelResponse
+	(*SubscribeFlow)(nil),        // 11: datapipe.runtime.v1.SubscribeFlow
+	(*UnsubscribeFlow)(nil),      // 12: datapipe.runtime.v1.UnsubscribeFlow
 }
 var file_datapipe_runtime_v1_runtime_proto_depIdxs = []int32{
-	0, // 0: datapipe.runtime.v1.RegisterRequest.kind:type_name -> datapipe.runtime.v1.RuntimeKind
-	1, // 1: datapipe.runtime.v1.RuntimeRegistryService.Register:input_type -> datapipe.runtime.v1.RegisterRequest
-	3, // 2: datapipe.runtime.v1.RuntimeRegistryService.Heartbeat:input_type -> datapipe.runtime.v1.HeartbeatRequest
-	5, // 3: datapipe.runtime.v1.RuntimeRegistryService.DeployStream:input_type -> datapipe.runtime.v1.DeployStreamRequest
-	2, // 4: datapipe.runtime.v1.RuntimeRegistryService.Register:output_type -> datapipe.runtime.v1.RegisterResponse
-	4, // 5: datapipe.runtime.v1.RuntimeRegistryService.Heartbeat:output_type -> datapipe.runtime.v1.HeartbeatResponse
-	6, // 6: datapipe.runtime.v1.RuntimeRegistryService.DeployStream:output_type -> datapipe.runtime.v1.DeployStreamResponse
-	4, // [4:7] is the sub-list for method output_type
-	1, // [1:4] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	0,  // 0: datapipe.runtime.v1.RegisterRequest.kind:type_name -> datapipe.runtime.v1.RuntimeKind
+	8,  // 1: datapipe.runtime.v1.DebugChannelRequest.event:type_name -> datapipe.runtime.v1.DebugEvent
+	9,  // 2: datapipe.runtime.v1.DebugChannelRequest.wire_metrics:type_name -> datapipe.runtime.v1.WireMetricsSnapshot
+	11, // 3: datapipe.runtime.v1.DebugChannelResponse.subscribe:type_name -> datapipe.runtime.v1.SubscribeFlow
+	12, // 4: datapipe.runtime.v1.DebugChannelResponse.unsubscribe:type_name -> datapipe.runtime.v1.UnsubscribeFlow
+	1,  // 5: datapipe.runtime.v1.RuntimeRegistryService.Register:input_type -> datapipe.runtime.v1.RegisterRequest
+	3,  // 6: datapipe.runtime.v1.RuntimeRegistryService.Heartbeat:input_type -> datapipe.runtime.v1.HeartbeatRequest
+	5,  // 7: datapipe.runtime.v1.RuntimeRegistryService.DeployStream:input_type -> datapipe.runtime.v1.DeployStreamRequest
+	7,  // 8: datapipe.runtime.v1.RuntimeRegistryService.DebugChannel:input_type -> datapipe.runtime.v1.DebugChannelRequest
+	2,  // 9: datapipe.runtime.v1.RuntimeRegistryService.Register:output_type -> datapipe.runtime.v1.RegisterResponse
+	4,  // 10: datapipe.runtime.v1.RuntimeRegistryService.Heartbeat:output_type -> datapipe.runtime.v1.HeartbeatResponse
+	6,  // 11: datapipe.runtime.v1.RuntimeRegistryService.DeployStream:output_type -> datapipe.runtime.v1.DeployStreamResponse
+	10, // 12: datapipe.runtime.v1.RuntimeRegistryService.DebugChannel:output_type -> datapipe.runtime.v1.DebugChannelResponse
+	9,  // [9:13] is the sub-list for method output_type
+	5,  // [5:9] is the sub-list for method input_type
+	5,  // [5:5] is the sub-list for extension type_name
+	5,  // [5:5] is the sub-list for extension extendee
+	0,  // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_datapipe_runtime_v1_runtime_proto_init() }
@@ -476,13 +1038,21 @@ func file_datapipe_runtime_v1_runtime_proto_init() {
 	if File_datapipe_runtime_v1_runtime_proto != nil {
 		return
 	}
+	file_datapipe_runtime_v1_runtime_proto_msgTypes[6].OneofWrappers = []any{
+		(*DebugChannelRequest_Event)(nil),
+		(*DebugChannelRequest_WireMetrics)(nil),
+	}
+	file_datapipe_runtime_v1_runtime_proto_msgTypes[9].OneofWrappers = []any{
+		(*DebugChannelResponse_Subscribe)(nil),
+		(*DebugChannelResponse_Unsubscribe)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_datapipe_runtime_v1_runtime_proto_rawDesc), len(file_datapipe_runtime_v1_runtime_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   6,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

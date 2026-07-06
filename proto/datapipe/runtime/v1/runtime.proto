@@ -18,6 +18,14 @@ service RuntimeRegistryService {
   // per deploy as REST API deploys happen (Increment 3, ARC-210/ADR-007
   // "streams for: deploy commands, flow status, health").
   rpc DeployStream(DeployStreamRequest) returns (stream DeployStreamResponse);
+
+  // DebugChannel is opened by the runtime once, after Register, and kept
+  // open for the runtime's lifetime (Increment 5, DBG-100/110/120/170): the
+  // runtime pushes sampled per-node debug events and periodic wire-metric
+  // snapshots for flows the control plane has subscribed to; the control
+  // plane pushes subscribe/unsubscribe requests down the same stream so a
+  // runtime never captures or sends data for a flow nobody is watching.
+  rpc DebugChannel(stream DebugChannelRequest) returns (stream DebugChannelResponse);
 }
 
 enum RuntimeKind {
@@ -58,4 +66,69 @@ message DeployStreamResponse {
   string flow_id = 1;
   int64 version = 2;
   string flow_json = 3;
+}
+
+// DebugChannelRequest is one message the runtime pushes on the DebugChannel:
+// either a single node/wire debug event or a periodic wire-metrics snapshot.
+message DebugChannelRequest {
+  string runtime_id = 1;
+  string session_token = 2;
+  oneof payload {
+    DebugEvent event = 3;
+    WireMetricsSnapshot wire_metrics = 4;
+  }
+}
+
+// DebugEvent carries one datagram observed at a node's input, output, or a
+// named debug/sidebar node (DBG-100/110). value_json is the full-fidelity
+// JSON encoding of the observed payload; the control plane truncates its own
+// copy before relaying to browsers (DBG-110 "load full on demand") — the
+// runtime always sends full fidelity since this channel is already sampled
+// (DBG-170).
+message DebugEvent {
+  string id = 1;
+  string flow_id = 2;
+  string node_id = 3;
+  string port = 4;
+  string direction = 5; // "in" | "out" | "sidebar"
+  string label = 6;
+  int64 time_unix_ms = 7;
+  string datagram_id = 8;
+  string correlation_id = 9;
+  string causation_id = 10;
+  string quality = 11;
+  string value_json = 12;
+}
+
+// WireMetricsSnapshot reports a wire's cumulative delivered/dropped counts
+// (BUS-110) for DBG-120's live counters/rates; sent periodically (not per
+// datagram) so it stays cheap at any throughput.
+message WireMetricsSnapshot {
+  string flow_id = 1;
+  string from_node = 2;
+  string from_port = 3;
+  string to_node = 4;
+  string to_port = 5;
+  uint64 delivered = 6;
+  uint64 dropped = 7;
+}
+
+// DebugChannelResponse is one message the control plane pushes on the
+// DebugChannel: a subscribe/unsubscribe request naming the flow a browser
+// client wants to inspect. The runtime only captures/forwards live events
+// for subscribed flows (DBG-170: "sampled/rate-limited to protect the
+// runtime").
+message DebugChannelResponse {
+  oneof payload {
+    SubscribeFlow subscribe = 1;
+    UnsubscribeFlow unsubscribe = 2;
+  }
+}
+
+message SubscribeFlow {
+  string flow_id = 1;
+}
+
+message UnsubscribeFlow {
+  string flow_id = 1;
 }

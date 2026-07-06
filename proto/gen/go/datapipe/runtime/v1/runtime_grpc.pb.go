@@ -26,6 +26,7 @@ const (
 	RuntimeRegistryService_Register_FullMethodName     = "/datapipe.runtime.v1.RuntimeRegistryService/Register"
 	RuntimeRegistryService_Heartbeat_FullMethodName    = "/datapipe.runtime.v1.RuntimeRegistryService/Heartbeat"
 	RuntimeRegistryService_DeployStream_FullMethodName = "/datapipe.runtime.v1.RuntimeRegistryService/DeployStream"
+	RuntimeRegistryService_DebugChannel_FullMethodName = "/datapipe.runtime.v1.RuntimeRegistryService/DebugChannel"
 )
 
 // RuntimeRegistryServiceClient is the client API for RuntimeRegistryService service.
@@ -42,6 +43,13 @@ type RuntimeRegistryServiceClient interface {
 	// per deploy as REST API deploys happen (Increment 3, ARC-210/ADR-007
 	// "streams for: deploy commands, flow status, health").
 	DeployStream(ctx context.Context, in *DeployStreamRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[DeployStreamResponse], error)
+	// DebugChannel is opened by the runtime once, after Register, and kept
+	// open for the runtime's lifetime (Increment 5, DBG-100/110/120/170): the
+	// runtime pushes sampled per-node debug events and periodic wire-metric
+	// snapshots for flows the control plane has subscribed to; the control
+	// plane pushes subscribe/unsubscribe requests down the same stream so a
+	// runtime never captures or sends data for a flow nobody is watching.
+	DebugChannel(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[DebugChannelRequest, DebugChannelResponse], error)
 }
 
 type runtimeRegistryServiceClient struct {
@@ -91,6 +99,19 @@ func (c *runtimeRegistryServiceClient) DeployStream(ctx context.Context, in *Dep
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type RuntimeRegistryService_DeployStreamClient = grpc.ServerStreamingClient[DeployStreamResponse]
 
+func (c *runtimeRegistryServiceClient) DebugChannel(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[DebugChannelRequest, DebugChannelResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &RuntimeRegistryService_ServiceDesc.Streams[1], RuntimeRegistryService_DebugChannel_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[DebugChannelRequest, DebugChannelResponse]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type RuntimeRegistryService_DebugChannelClient = grpc.BidiStreamingClient[DebugChannelRequest, DebugChannelResponse]
+
 // RuntimeRegistryServiceServer is the server API for RuntimeRegistryService service.
 // All implementations must embed UnimplementedRuntimeRegistryServiceServer
 // for forward compatibility.
@@ -105,6 +126,13 @@ type RuntimeRegistryServiceServer interface {
 	// per deploy as REST API deploys happen (Increment 3, ARC-210/ADR-007
 	// "streams for: deploy commands, flow status, health").
 	DeployStream(*DeployStreamRequest, grpc.ServerStreamingServer[DeployStreamResponse]) error
+	// DebugChannel is opened by the runtime once, after Register, and kept
+	// open for the runtime's lifetime (Increment 5, DBG-100/110/120/170): the
+	// runtime pushes sampled per-node debug events and periodic wire-metric
+	// snapshots for flows the control plane has subscribed to; the control
+	// plane pushes subscribe/unsubscribe requests down the same stream so a
+	// runtime never captures or sends data for a flow nobody is watching.
+	DebugChannel(grpc.BidiStreamingServer[DebugChannelRequest, DebugChannelResponse]) error
 	mustEmbedUnimplementedRuntimeRegistryServiceServer()
 }
 
@@ -123,6 +151,9 @@ func (UnimplementedRuntimeRegistryServiceServer) Heartbeat(context.Context, *Hea
 }
 func (UnimplementedRuntimeRegistryServiceServer) DeployStream(*DeployStreamRequest, grpc.ServerStreamingServer[DeployStreamResponse]) error {
 	return status.Error(codes.Unimplemented, "method DeployStream not implemented")
+}
+func (UnimplementedRuntimeRegistryServiceServer) DebugChannel(grpc.BidiStreamingServer[DebugChannelRequest, DebugChannelResponse]) error {
+	return status.Error(codes.Unimplemented, "method DebugChannel not implemented")
 }
 func (UnimplementedRuntimeRegistryServiceServer) mustEmbedUnimplementedRuntimeRegistryServiceServer() {
 }
@@ -193,6 +224,13 @@ func _RuntimeRegistryService_DeployStream_Handler(srv interface{}, stream grpc.S
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type RuntimeRegistryService_DeployStreamServer = grpc.ServerStreamingServer[DeployStreamResponse]
 
+func _RuntimeRegistryService_DebugChannel_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(RuntimeRegistryServiceServer).DebugChannel(&grpc.GenericServerStream[DebugChannelRequest, DebugChannelResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type RuntimeRegistryService_DebugChannelServer = grpc.BidiStreamingServer[DebugChannelRequest, DebugChannelResponse]
+
 // RuntimeRegistryService_ServiceDesc is the grpc.ServiceDesc for RuntimeRegistryService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -214,6 +252,12 @@ var RuntimeRegistryService_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "DeployStream",
 			Handler:       _RuntimeRegistryService_DeployStream_Handler,
 			ServerStreams: true,
+		},
+		{
+			StreamName:    "DebugChannel",
+			Handler:       _RuntimeRegistryService_DebugChannel_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
 		},
 	},
 	Metadata: "datapipe/runtime/v1/runtime.proto",

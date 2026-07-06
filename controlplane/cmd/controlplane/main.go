@@ -70,7 +70,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	handlers := api.NewHandlers(apiStore, authStore, vault, auditLog, reg, runtimeLister{reg}, slog.Default())
+	handlers := api.NewHandlers(apiStore, authStore, vault, auditLog, reg, runtimeLister{reg}, reg.DebugHub(), slog.Default())
 
 	healthSrv := health.NewServer(func() error {
 		pingCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

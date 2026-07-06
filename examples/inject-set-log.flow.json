@@ -26,7 +26,7 @@
         "type": "debug-log",
         "typeVersion": 1,
         "name": "Log result",
-        "config": { "label": "demo" }
+        "config": { "label": "demo", "console": true }
       }
     ],
     "wires": [

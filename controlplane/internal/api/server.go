@@ -10,6 +10,7 @@ import (
 	"github.com/1uedev/DataPipe/controlplane/internal/auth"
 	"github.com/1uedev/DataPipe/controlplane/internal/crypto"
 	"github.com/1uedev/DataPipe/controlplane/internal/db"
+	"github.com/1uedev/DataPipe/controlplane/internal/debughub"
 )
 
 // Store is the plain CRUD layer over the SQL database; RBAC and audit
@@ -56,14 +57,15 @@ type Handlers struct {
 	auditLog  *audit.Log
 	deployer  Deployer
 	runtimes  RuntimeLister
+	debugHub  *debughub.Hub
 	logger    *slog.Logger
 }
 
-func NewHandlers(store *Store, authStore *auth.Store, vault *crypto.Vault, auditLog *audit.Log, deployer Deployer, runtimes RuntimeLister, logger *slog.Logger) *Handlers {
+func NewHandlers(store *Store, authStore *auth.Store, vault *crypto.Vault, auditLog *audit.Log, deployer Deployer, runtimes RuntimeLister, debugHub *debughub.Hub, logger *slog.Logger) *Handlers {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Handlers{store: store, authStore: authStore, vault: vault, auditLog: auditLog, deployer: deployer, runtimes: runtimes, logger: logger}
+	return &Handlers{store: store, authStore: authStore, vault: vault, auditLog: auditLog, deployer: deployer, runtimes: runtimes, debugHub: debugHub, logger: logger}
 }
 
 // audit records a SEC-140 entry; a failure here is logged but never fails
@@ -117,8 +119,17 @@ func (h *Handlers) Routes() http.Handler {
 	protected.HandleFunc("GET /audit-log", h.listAuditLog)
 	protected.HandleFunc("GET /node-types", h.listNodeTypes)
 
+	protected.HandleFunc("POST /flows/{flowId}/nodes/{nodeId}/execute", h.executeNode)
+	protected.HandleFunc("GET /flows/{flowId}/debug/pins", h.listPins)
+	protected.HandleFunc("PUT /flows/{flowId}/nodes/{nodeId}/pins/{port}", h.upsertPin)
+	protected.HandleFunc("DELETE /flows/{flowId}/nodes/{nodeId}/pins/{port}", h.deletePin)
+	protected.HandleFunc("GET /flows/{flowId}/debug/events/{eventId}", h.loadFullDebugEvent)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /auth/login", h.login)
+	// /ws/debug authenticates via a query-param token (docs/api/debug-websocket.md),
+	// not the Authorization header, so it is mounted outside auth.Middleware.
+	mux.HandleFunc("GET /ws/debug", h.debugWebSocket)
 	mux.Handle("/", h.authStore.Middleware(protected))
 	return mux
 }

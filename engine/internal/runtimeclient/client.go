@@ -26,7 +26,9 @@ type DeployHandler func(ctx context.Context, flowID string, version int64, flowJ
 // onRegistered is invoked (with the current registration state) every time
 // registration succeeds or is lost, so callers can drive a health endpoint;
 // onDeploy is invoked for every DeployCommand received while registered.
-func Run(ctx context.Context, addr, runtimeID, version string, onRegistered func(bool), onDeploy DeployHandler) error {
+// debugSink and rb may be nil to opt out of the live-debugging channel
+// entirely (Increment 5, DBG-100/110/120/170).
+func Run(ctx context.Context, addr, runtimeID, version string, onRegistered func(bool), onDeploy DeployHandler, debugSink *DebugSink, rb RingBufferSource) error {
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return err
@@ -56,14 +58,17 @@ func Run(ctx context.Context, addr, runtimeID, version string, onRegistered func
 		onRegistered(true)
 		slog.Info("runtime registered", "runtime_id", runtimeID)
 
-		deployCtx, cancelDeploy := context.WithCancel(ctx)
-		go deployStreamLoop(deployCtx, client, runtimeID, sessionToken, onDeploy)
+		streamCtx, cancelStreams := context.WithCancel(ctx)
+		go deployStreamLoop(streamCtx, client, runtimeID, sessionToken, onDeploy)
+		if debugSink != nil {
+			go debugChannelLoop(streamCtx, client, runtimeID, sessionToken, debugSink, rb)
+		}
 
 		if err := heartbeatLoop(ctx, client, runtimeID, sessionToken); err != nil {
 			onRegistered(false)
 			slog.Warn("heartbeat loop ended, will re-register", "error", err)
 		}
-		cancelDeploy()
+		cancelStreams()
 	}
 }
 

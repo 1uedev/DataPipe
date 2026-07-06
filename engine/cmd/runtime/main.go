@@ -38,6 +38,9 @@ func main() {
 	deployment := flow.NewDeployment(slog.Default())
 	defer deployment.Stop()
 
+	debugSink := runtimeclient.NewDebugSink()
+	deployment.SetDebugSink(debugSink)
+
 	httpServer := &http.Server{Addr: httpAddr, Handler: healthSrv.Handler()}
 	go func() {
 		slog.Info("runtime health endpoint listening", "addr", httpAddr)
@@ -48,7 +51,7 @@ func main() {
 	}()
 
 	go func() {
-		err := runtimeclient.Run(ctx, controlPlaneAddr, runtimeID, version, healthSrv.SetReady, applyDeploy(deployment))
+		err := runtimeclient.Run(ctx, controlPlaneAddr, runtimeID, version, healthSrv.SetReady, applyDeploy(deployment), debugSink, deployment)
 		if err != nil && ctx.Err() == nil {
 			slog.Error("runtime client stopped unexpectedly", "error", err)
 		}

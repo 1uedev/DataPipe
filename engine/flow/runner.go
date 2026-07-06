@@ -44,10 +44,31 @@ func (m *NodeMetrics) Snapshot() MetricsSnapshot {
 // Processor's receive-process-send loop over its inbox wire.
 type nodeRunner struct {
 	id          string
+	flowID      string
+	inputPort   string
 	errorPolicy *ErrorPolicy
 	outputs     map[string]*bus.FanOut
 	logger      *slog.Logger
 	metrics     *NodeMetrics
+	ring        *ringBuffer
+	limiter     *rateLimiter
+	sink        DebugSink
+}
+
+// captureDebug records a datagram observed at a node boundary into its ring
+// buffer (DBG-100, always) and — if the per-node rate limiter allows it —
+// forwards it live to the attached DebugSink (DBG-170). r.ring is nil for
+// runners built outside Deployment.startNode (e.g. direct unit tests), in
+// which case this is a no-op.
+func (r *nodeRunner) captureDebug(dir DebugDirection, port, label string, d datagram.Datagram) {
+	if r.ring == nil {
+		return
+	}
+	e := newDebugEvent(r.flowID, r.id, port, dir, label, d)
+	r.ring.push(e)
+	if r.limiter.allow() {
+		r.sink.Capture(e)
+	}
 }
 
 func defaultErrorPolicy() ErrorPolicy { return ErrorPolicy{OnError: "fail"} }
@@ -73,6 +94,7 @@ func (r *nodeRunner) runSource(ctx context.Context, src Source) {
 		if !ok {
 			return fmt.Errorf("node %s: no such output port %q", r.id, port)
 		}
+		r.captureDebug(DirOut, port, "", d)
 		return fo.Send(ctx, d)
 	}
 
@@ -89,6 +111,7 @@ func (r *nodeRunner) runProcessor(ctx context.Context, proc Processor, inbox *bu
 		if err != nil {
 			return
 		}
+		r.captureDebug(DirIn, r.inputPort, "", in)
 		r.handle(ctx, proc, in)
 	}
 }
@@ -149,6 +172,7 @@ func (r *nodeRunner) dispatch(ctx context.Context, results []PortDatagram) {
 			r.logger.Warn("no such output port", "node", r.id, "port", res.Port)
 			continue
 		}
+		r.captureDebug(DirOut, res.Port, "", res.Datagram)
 		if err := fo.Send(ctx, res.Datagram); err != nil && ctx.Err() == nil {
 			r.logger.Error("send failed", "node", r.id, "port", res.Port, "error", err)
 		}
@@ -165,7 +189,9 @@ func (r *nodeRunner) applyTerminalPolicy(ctx context.Context, policy ErrorPolicy
 			r.logger.Error("errorPort policy but no error output wired", "node", r.id, "error", nodeErr)
 			return
 		}
-		if err := fo.Send(ctx, buildErrorDatagram(in, nodeErr)); err != nil && ctx.Err() == nil {
+		errDgm := buildErrorDatagram(in, nodeErr)
+		r.captureDebug(DirOut, "error", "", errDgm)
+		if err := fo.Send(ctx, errDgm); err != nil && ctx.Err() == nil {
 			r.logger.Error("failed to send to error port", "node", r.id, "error", err)
 		}
 	case "discard":

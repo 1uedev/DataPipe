@@ -8,7 +8,9 @@ import { useEditorStore } from '../store/editor'
 import { Palette } from '../components/Palette'
 import { FlowCanvas } from '../components/FlowCanvas'
 import { ConfigPanel } from '../components/ConfigPanel'
+import { DebugSidebar } from '../components/DebugSidebar'
 import { canvasToContent, contentToCanvas } from '../utils/flowConversion'
+import { useDebugStore } from '../store/debug'
 import { useI18n } from '../i18n'
 
 export default function FlowEditor() {
@@ -20,6 +22,7 @@ export default function FlowEditor() {
   const [deployState, setDeployState] = useState<'idle' | 'deploying' | 'success' | 'error'>('idle')
   const [deployMessage, setDeployMessage] = useState('')
   const [deployComment, setDeployComment] = useState('')
+  const [showDebugSidebar, setShowDebugSidebar] = useState(false)
 
   const nodes = useEditorStore((s) => s.nodes)
   const edges = useEditorStore((s) => s.edges)
@@ -38,6 +41,9 @@ export default function FlowEditor() {
   const canUndo = useEditorStore((s) => s.past.length > 0)
   const canRedo = useEditorStore((s) => s.future.length > 0)
 
+  const connectDebug = useDebugStore((s) => s.connect)
+  const disconnectDebug = useDebugStore((s) => s.disconnect)
+
   useEffect(() => {
     if (!flowId) return
     void api.getFlow(flowId).then((f) => {
@@ -47,6 +53,13 @@ export default function FlowEditor() {
     })
     void api.listNodeTypes().then(setNodeTypes)
   }, [flowId, load])
+
+  // DBG-100/110/120/170: one live-debugging subscription per open flow.
+  useEffect(() => {
+    if (!flowId) return
+    connectDebug(flowId)
+    return () => disconnectDebug()
+  }, [flowId, connectDebug, disconnectDebug])
 
   const selectedNode = useMemo(() => nodes.find((n) => n.id === selectedNodeId), [nodes, selectedNodeId])
   const selectedNodeType = useMemo(
@@ -149,6 +162,13 @@ export default function FlowEditor() {
           <button onClick={toggleFlowDisabled} className="rounded border border-(--color-border) px-2 py-1">
             {flowDisabled ? t('editor.flow.enable') : t('editor.flow.disable')}
           </button>
+          <button
+            onClick={() => setShowDebugSidebar((v) => !v)}
+            title={t('debugSidebar.toggle')}
+            className={`rounded border border-(--color-border) px-2 py-1 ${showDebugSidebar ? 'text-(--color-accent)' : ''}`}
+          >
+            {t('debugSidebar.title')}
+          </button>
           <button onClick={() => void onSave()} disabled={saving} className="rounded border border-(--color-border) px-2 py-1">
             {t('editor.save')}
           </button>
@@ -179,13 +199,18 @@ export default function FlowEditor() {
 
       <div className="flex flex-1 overflow-hidden">
         <Palette nodeTypes={nodeTypes} />
-        <ReactFlowProvider>
-          <FlowCanvas nodeTypes={nodeTypes} />
-        </ReactFlowProvider>
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <ReactFlowProvider>
+            <FlowCanvas nodeTypes={nodeTypes} />
+          </ReactFlowProvider>
+          {showDebugSidebar && <DebugSidebar onClose={() => setShowDebugSidebar(false)} />}
+        </div>
         {selectedNode && (
           <ConfigPanel
             node={{ name: selectedNode.data.name, config: selectedNode.data.config }}
             nodeType={selectedNodeType}
+            flowId={flow.id}
+            nodeId={selectedNode.id}
             onChange={(patch) => updateNodeData(selectedNode.id, patch)}
             onClose={() => select(null)}
           />

@@ -12,6 +12,8 @@ import (
 
 	runtimev1 "github.com/1uedev/DataPipe/proto/gen/go/datapipe/runtime/v1"
 	"github.com/google/uuid"
+
+	"github.com/1uedev/DataPipe/controlplane/internal/debughub"
 )
 
 // deployChanBuffer bounds how many pending deploy commands a runtime can
@@ -34,10 +36,30 @@ type Service struct {
 
 	mu       sync.Mutex
 	runtimes map[string]*runtimeState
+	debugHub *debughub.Hub
 }
 
 func NewService() *Service {
-	return &Service{runtimes: make(map[string]*runtimeState)}
+	s := &Service{runtimes: make(map[string]*runtimeState)}
+	s.debugHub = debughub.New(s.validSession)
+	return s
+}
+
+// DebugHub exposes the live-debugging hub (Increment 5) so the REST/WS
+// layer can subscribe browsers and look up cached full payloads.
+func (s *Service) DebugHub() *debughub.Hub { return s.debugHub }
+
+func (s *Service) validSession(runtimeID, sessionToken string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rt, ok := s.runtimes[runtimeID]
+	return ok && rt.sessionToken == sessionToken
+}
+
+// DebugChannel is opened by a runtime once, right after Register, and kept
+// open for the runtime's lifetime (Increment 5, DBG-100/110/120/170).
+func (s *Service) DebugChannel(stream runtimev1.RuntimeRegistryService_DebugChannelServer) error {
+	return s.debugHub.Serve(stream)
 }
 
 func (s *Service) Register(ctx context.Context, req *runtimev1.RegisterRequest) (*runtimev1.RegisterResponse, error) {

@@ -16,6 +16,7 @@ import (
 	"github.com/1uedev/DataPipe/controlplane/internal/auth"
 	"github.com/1uedev/DataPipe/controlplane/internal/crypto"
 	"github.com/1uedev/DataPipe/controlplane/internal/db"
+	"github.com/1uedev/DataPipe/controlplane/internal/debughub"
 
 	// Registers the "inject"/"set"/"debug-log" node types so
 	// engine/flow.Validate accepts test flow content, exactly as
@@ -55,6 +56,7 @@ type testEnv struct {
 	authStore *auth.Store
 	auditLog  *audit.Log
 	deployer  *fakeDeployer
+	debugHub  *debughub.Hub
 	server    *httptest.Server
 }
 
@@ -83,12 +85,13 @@ func newTestEnv(t *testing.T) *testEnv {
 	}
 
 	deployer := &fakeDeployer{}
-	handlers := NewHandlers(store, authStore, vault, auditLog, deployer, &fakeRuntimeLister{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	hub := debughub.New(func(string, string) bool { return true })
+	handlers := NewHandlers(store, authStore, vault, auditLog, deployer, &fakeRuntimeLister{}, hub, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	server := httptest.NewServer(handlers.Routes())
 	t.Cleanup(server.Close)
 
-	return &testEnv{t: t, authStore: authStore, auditLog: auditLog, deployer: deployer, server: server}
+	return &testEnv{t: t, authStore: authStore, auditLog: auditLog, deployer: deployer, debugHub: hub, server: server}
 }
 
 // createUserAndLogin creates a local account and returns a bearer token for it.

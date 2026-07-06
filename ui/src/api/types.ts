@@ -132,3 +132,53 @@ export interface FlowWire {
 export interface FlowLayout {
   nodes?: Record<string, { x: number; y: number }>
 }
+
+// --- Increment 5: live debugging (DBG-100/110/120/130/170) ---
+
+export type DebugDirection = 'in' | 'out' | 'sidebar'
+
+// Mirrors docs/api/debug-websocket.md's "event" message.
+export interface DebugEvent {
+  id: string
+  flowId: string
+  nodeId: string
+  port: string
+  direction: DebugDirection
+  label: string
+  timeUnixMs: number
+  datagramId: string
+  correlationId: string
+  causationId: string
+  quality: string
+  valueJson: string
+  truncated: boolean
+  fullLength: number
+}
+
+// Mirrors docs/api/debug-websocket.md's "wireMetrics" message.
+export interface WireMetrics {
+  flowId: string
+  fromNode: string
+  fromPort: string
+  toNode: string
+  toPort: string
+  delivered: number
+  dropped: number
+}
+
+export type DebugWSMessage =
+  | { type: 'event'; event: DebugEvent }
+  | { type: 'wireMetrics'; metrics: WireMetrics }
+
+export interface ExecuteNodeResult {
+  outputs: { port: string; datagram: unknown }[]
+  error: string | null
+}
+
+export interface DebugPin {
+  flowId: string
+  nodeId: string
+  port: string
+  value: unknown
+  updatedAt: string
+}

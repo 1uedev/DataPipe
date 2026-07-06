@@ -56,6 +56,17 @@ type Deployment struct {
 	// outputTargets maps (nodeID, outputPort) -> the inbox keys it feeds,
 	// rebuilt fresh from the wire list on every Deploy.
 	outputTargets map[nodePort][]nodePort
+
+	// Live-debugging state (Increment 5, DBG-100/110/120/170). Only one
+	// flow runs per Deployment today, so flowID/wires are simple fields
+	// rather than a per-flow map.
+	flowID      string
+	wires       []Wire
+	ringBuffers map[string]*ringBuffer
+	limiters    map[string]*rateLimiter
+	debugSink   DebugSink
+	metricsStop chan struct{}
+	stopOnce    sync.Once
 }
 
 // NewDeployment creates an empty deployment ready for Deploy. A nil logger uses
@@ -64,12 +75,114 @@ func NewDeployment(logger *slog.Logger) *Deployment {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Deployment{
+	d := &Deployment{
 		logger:        logger,
 		nodes:         map[string]*runningNode{},
 		inboxes:       map[nodePort]*bus.Wire{},
 		inboxFP:       map[nodePort]string{},
 		outputTargets: map[nodePort][]nodePort{},
+		ringBuffers:   map[string]*ringBuffer{},
+		limiters:      map[string]*rateLimiter{},
+		debugSink:     NoopDebugSink,
+		metricsStop:   make(chan struct{}),
+	}
+	go d.pollWireMetrics()
+	return d
+}
+
+// SetDebugSink attaches (or detaches, with nil) the live-debugging sink that
+// receives rate-limited node/sidebar events and periodic wire-metrics
+// snapshots (DBG-170). Safe to call at any time, including while nodes are
+// running.
+func (g *Deployment) SetDebugSink(sink DebugSink) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if sink == nil {
+		sink = NoopDebugSink
+	}
+	g.debugSink = sink
+}
+
+// NodeDebugSnapshot returns the current ring-buffer contents (oldest first)
+// for one node, for a browser opening the inspector to see history that
+// predates its subscription (DBG-100: "inspection works without redeploy").
+func (g *Deployment) NodeDebugSnapshot(nodeID string) []DebugEvent {
+	g.mu.Lock()
+	rb, ok := g.ringBuffers[nodeID]
+	g.mu.Unlock()
+	if !ok {
+		return nil
+	}
+	return rb.snapshot()
+}
+
+// FlowDebugSnapshot returns every currently-running node's ring-buffer
+// contents for flowID, or nil if flowID isn't the deployment's current
+// flow. Used to replay history immediately when the control plane
+// subscribes to a flow (DBG-100).
+func (g *Deployment) FlowDebugSnapshot(flowID string) []DebugEvent {
+	g.mu.Lock()
+	if g.flowID != flowID {
+		g.mu.Unlock()
+		return nil
+	}
+	buffers := make([]*ringBuffer, 0, len(g.ringBuffers))
+	for _, rb := range g.ringBuffers {
+		buffers = append(buffers, rb)
+	}
+	g.mu.Unlock()
+
+	var out []DebugEvent
+	for _, rb := range buffers {
+		out = append(out, rb.snapshot()...)
+	}
+	return out
+}
+
+// pollWireMetrics periodically reports every wire's cumulative
+// delivered/dropped counters (DBG-120's live counters/rates) — a fixed-rate
+// snapshot rather than per-datagram, so it stays cheap at any throughput.
+func (g *Deployment) pollWireMetrics() {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-g.metricsStop:
+			return
+		case <-ticker.C:
+			g.reportWireMetrics()
+		}
+	}
+}
+
+type wireBusPair struct {
+	wire Wire
+	bus  *bus.Wire
+}
+
+func (g *Deployment) reportWireMetrics() {
+	g.mu.Lock()
+	flowID := g.flowID
+	sink := g.debugSink
+	pairs := make([]wireBusPair, 0, len(g.wires))
+	for _, w := range g.wires {
+		if busWire, ok := g.inboxes[nodePort{w.To.Node, w.To.Port}]; ok {
+			pairs = append(pairs, wireBusPair{wire: w, bus: busWire})
+		}
+	}
+	g.mu.Unlock()
+
+	for _, p := range pairs {
+		m := p.bus.Metrics()
+		sink.WireMetrics(WireMetricsSample{
+			FlowID:    flowID,
+			FromNode:  p.wire.From.Node,
+			FromPort:  p.wire.From.Port,
+			ToNode:    p.wire.To.Node,
+			ToPort:    p.wire.To.Port,
+			Delivered: m.Delivered,
+			Dropped:   m.Dropped,
+		})
 	}
 }
 
@@ -100,6 +213,9 @@ func (g *Deployment) Deploy(ctx context.Context, f *FlowFile) error {
 
 	g.mu.Lock()
 	defer g.mu.Unlock()
+
+	g.flowID = f.ID
+	g.wires = append([]Wire(nil), f.Graph.Wires...)
 
 	nodeByID := make(map[string]*Node, len(f.Graph.Nodes))
 	infoByID := make(map[string]NodeTypeInfo, len(f.Graph.Nodes))
@@ -150,6 +266,16 @@ func (g *Deployment) Deploy(ctx context.Context, f *FlowFile) error {
 		delete(g.nodes, id)
 	}
 	stopWg.Wait()
+
+	// A node's ring buffer/limiter is only dropped once it's actually
+	// removed from the flow, not on every hot-deploy restart, so history
+	// survives config-only redeploys of the same node (DBG-100).
+	for id := range g.ringBuffers {
+		if _, stillExists := nodeByID[id]; !stillExists {
+			delete(g.ringBuffers, id)
+			delete(g.limiters, id)
+		}
+	}
 
 	// Start every node that isn't already running with the current fingerprint.
 	for id, n := range nodeByID {
@@ -261,9 +387,37 @@ func (g *Deployment) startNode(ctx context.Context, n *Node, info NodeTypeInfo, 
 		outputs[port] = bus.NewFanOut(datagram.DefaultBinaryRefThreshold, g.inboxesForOutput(n.ID, port)...)
 	}
 
+	ring, ok := g.ringBuffers[n.ID]
+	if !ok {
+		ring = newRingBuffer(DefaultRingBufferSize)
+		g.ringBuffers[n.ID] = ring
+	}
+	limiter, ok := g.limiters[n.ID]
+	if !ok {
+		limiter = newRateLimiter(DefaultDebugRateLimit)
+		g.limiters[n.ID] = limiter
+	}
+
+	inputPort := ""
+	if len(info.Inputs) > 0 {
+		inputPort = info.Inputs[0]
+	}
+
 	nodeCtx, cancel := context.WithCancel(ctx)
+	nodeCtx = withDebugContext(nodeCtx, ring, limiter, g.debugSink, g.flowID, n.ID)
 	metrics := &NodeMetrics{}
-	runner := &nodeRunner{id: n.ID, errorPolicy: n.ErrorPolicy, outputs: outputs, logger: g.logger, metrics: metrics}
+	runner := &nodeRunner{
+		id:          n.ID,
+		flowID:      g.flowID,
+		inputPort:   inputPort,
+		errorPolicy: n.ErrorPolicy,
+		outputs:     outputs,
+		logger:      g.logger,
+		metrics:     metrics,
+		ring:        ring,
+		limiter:     limiter,
+		sink:        g.debugSink,
+	}
 
 	done := make(chan struct{})
 
@@ -361,4 +515,5 @@ func (g *Deployment) Stop() {
 	g.nodes = map[string]*runningNode{}
 	g.inboxes = map[nodePort]*bus.Wire{}
 	g.inboxFP = map[nodePort]string{}
+	g.stopOnce.Do(func() { close(g.metricsStop) })
 }

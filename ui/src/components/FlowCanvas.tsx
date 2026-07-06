@@ -12,6 +12,7 @@ import '@xyflow/react/dist/style.css'
 import type { NodeType } from '../api/types'
 import { useEditorStore } from '../store/editor'
 import { usePalettePrefsStore } from '../store/palettePrefs'
+import { useDebugStore, sourceWireKey, wireKey } from '../store/debug'
 import { newCanvasNode, type CanvasNode } from '../utils/flowConversion'
 import { makeFlowNodeView } from './FlowNodeView'
 import { useI18n } from '../i18n'
@@ -33,6 +34,8 @@ export function FlowCanvas({ nodeTypes }: FlowCanvasProps) {
   const addNode = useEditorStore((s) => s.addNode)
   const commit = useEditorStore((s) => s.commit)
   const recordUsed = usePalettePrefsStore((s) => s.recordUsed)
+  const pulsingSourceWires = useDebugStore((s) => s.pulsingSourceWires)
+  const wireMetrics = useDebugStore((s) => s.wireMetrics)
 
   const { screenToFlowPosition, fitView } = useReactFlow()
   const wrapperRef = useRef<HTMLDivElement>(null)
@@ -41,6 +44,24 @@ export function FlowCanvas({ nodeTypes }: FlowCanvasProps) {
 
   const nodeTypesByName = useMemo(() => new Map(nodeTypes.map((n) => [n.type, n])), [nodeTypes])
   const rfNodeTypes: NodeTypes = useMemo(() => ({ flowNode: makeFlowNodeView(nodeTypesByName) }), [nodeTypesByName])
+
+  // DBG-120: wires visibly pulse as datagrams pass, with live counters —
+  // pulses come from per-node "out" events (source side only, so a fan-out
+  // to several wires pulses all of them together); counters come from the
+  // periodic per-wire metrics snapshot (accurate even while pulses are
+  // themselves rate-limited/sampled, DBG-170).
+  const decoratedEdges = useMemo(
+    () =>
+      edges.map((e) => {
+        const sourcePort = e.sourceHandle ?? ''
+        const targetPort = e.targetHandle ?? ''
+        const pulsing = sourceWireKey(e.source, sourcePort) in pulsingSourceWires
+        const metrics = wireMetrics[wireKey(e.source, sourcePort, e.target, targetPort)]
+        const label = metrics ? `${metrics.delivered}${metrics.dropped ? ` (-${metrics.dropped})` : ''}` : undefined
+        return { ...e, animated: pulsing || e.animated, className: pulsing ? 'debug-pulse' : undefined, label }
+      }),
+    [edges, pulsingSourceWires, wireMetrics],
+  )
 
   const onDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -68,7 +89,7 @@ export function FlowCanvas({ nodeTypes }: FlowCanvasProps) {
     <div ref={wrapperRef} className="relative h-full flex-1">
       <ReactFlow
         nodes={nodes}
-        edges={edges}
+        edges={decoratedEdges}
         nodeTypes={rfNodeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}

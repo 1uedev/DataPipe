@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { NodeType } from '../api/types'
 import { SchemaForm } from './SchemaForm'
+import { Inspector } from './Inspector'
 import { useI18n } from '../i18n'
 
 // The subset of a node's editable fields this panel actually produces —
@@ -14,16 +15,19 @@ export interface ConfigPanelNode extends Record<string, unknown> {
 interface ConfigPanelProps {
   node: ConfigPanelNode
   nodeType: NodeType | undefined
+  flowId: string
+  nodeId: string
   onChange: (patch: ConfigPanelNode) => void
   onClose: () => void
 }
 
 // UI-170: "selecting a node opens a right-hand panel (not modal) with
 // configuration, description, and node documentation tab; required-field
-// validation with inline errors before deploy."
-export function ConfigPanel({ node, nodeType, onChange, onClose }: ConfigPanelProps) {
+// validation with inline errors before deploy." The "Inspect" tab adds
+// Increment 5's live data / run-once / pinning (DBG-100/130).
+export function ConfigPanel({ node, nodeType, flowId, nodeId, onChange, onClose }: ConfigPanelProps) {
   const { t } = useI18n()
-  const [tab, setTab] = useState<'config' | 'description'>('config')
+  const [tab, setTab] = useState<'config' | 'description' | 'inspect'>('config')
 
   return (
     <aside className="flex h-full w-80 flex-col border-l border-(--color-border) bg-(--color-bg)">
@@ -57,20 +61,25 @@ export function ConfigPanel({ node, nodeType, onChange, onClose }: ConfigPanelPr
         >
           {t('config.tab.description')}
         </button>
+        <button
+          onClick={() => setTab('inspect')}
+          className={`flex-1 border-b-2 px-3 py-2 ${tab === 'inspect' ? 'border-(--color-accent) font-medium' : 'border-transparent text-(--color-text-muted)'}`}
+        >
+          {t('config.tab.inspect')}
+        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto p-3">
-        {tab === 'config' ? (
-          nodeType ? (
+        {tab === 'config' &&
+          (nodeType ? (
             <SchemaForm
               schema={nodeType.configSchema}
               value={node.config ?? {}}
               onChange={(v) => onChange({ config: v as Record<string, unknown> })}
             />
-          ) : null
-        ) : (
-          <p className="text-sm text-(--color-text-muted)">{nodeType?.description}</p>
-        )}
+          ) : null)}
+        {tab === 'description' && <p className="text-sm text-(--color-text-muted)">{nodeType?.description}</p>}
+        {tab === 'inspect' && <Inspector flowId={flowId} nodeId={nodeId} />}
       </div>
     </aside>
   )

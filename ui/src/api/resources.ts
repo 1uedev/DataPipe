@@ -3,6 +3,8 @@ import type {
   AuditEntry,
   Connection,
   CredentialMeta,
+  DebugPin,
+  ExecuteNodeResult,
   Flow,
   FlowFileContent,
   FlowVersion,
@@ -100,4 +102,32 @@ export function listNodeTypes() {
 export function listAuditLog(projectId?: string) {
   const suffix = projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''
   return request<AuditEntry[]>(`/audit-log${suffix}`)
+}
+
+// --- Increment 5: live debugging (DBG-100/110/120/130/170) ---
+
+export function executeNode(flowId: string, nodeId: string, payload: unknown) {
+  return request<ExecuteNodeResult>(`/flows/${flowId}/nodes/${nodeId}/execute`, {
+    method: 'POST',
+    body: { payload },
+  })
+}
+
+export function listPins(flowId: string) {
+  return request<DebugPin[]>(`/flows/${flowId}/debug/pins`)
+}
+
+export function setPin(flowId: string, nodeId: string, port: string, value: unknown) {
+  return request<DebugPin>(`/flows/${flowId}/nodes/${nodeId}/pins/${port}`, {
+    method: 'PUT',
+    body: { value },
+  })
+}
+
+export function deletePin(flowId: string, nodeId: string, port: string) {
+  return request<void>(`/flows/${flowId}/nodes/${nodeId}/pins/${port}`, { method: 'DELETE' })
+}
+
+export function loadFullDebugEvent(flowId: string, eventId: string) {
+  return request<{ valueJson: string }>(`/flows/${flowId}/debug/events/${eventId}`)
 }

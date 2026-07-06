@@ -5,11 +5,11 @@ go 1.26.4
 require (
 	github.com/1uedev/DataPipe/proto/gen/go v0.0.0
 	github.com/google/uuid v1.6.0
+	github.com/oklog/ulid/v2 v2.1.1
 	google.golang.org/grpc v1.82.0
 )
 
 require (
-	github.com/oklog/ulid/v2 v2.1.1 // indirect
 	golang.org/x/net v0.53.0 // indirect
 	golang.org/x/sys v0.43.0 // indirect
 	golang.org/x/text v0.36.0 // indirect

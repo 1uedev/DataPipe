@@ -478,6 +478,139 @@ paths:
                 items: { $ref: "#/components/schemas/AuditEntry" }
         "403": { $ref: "#/components/responses/Forbidden" }
 
+  /ws/debug:
+    get:
+      summary: >
+        Live debugging WebSocket (Increment 5, DBG-100/110/120/170). Full
+        message protocol in docs/api/debug-websocket.md — not a normal
+        REST exchange, documented here only so the endpoint appears in the
+        contract.
+      parameters:
+        - name: flowId
+          in: query
+          required: true
+          schema: { type: string }
+        - name: token
+          in: query
+          required: true
+          schema: { type: string }
+          description: Session token, passed as a query param because the WebSocket handshake can't carry an Authorization header.
+      responses:
+        "101": { description: Switching Protocols }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /flows/{flowId}/nodes/{nodeId}/execute:
+    post:
+      summary: >
+        Design-time single-node execution (DBG-130): run one Processor node
+        type from the flow's current draft against a pinned/sample input,
+        without touching a live deployment.
+      parameters:
+        - $ref: "#/components/parameters/FlowId"
+        - name: nodeId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [payload]
+              properties:
+                payload:
+                  description: The datagram payload value to run the node against.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExecuteNodeResult" }
+        "400": { description: Unknown node id, or the node type is a Source (out of scope for design-time execution) }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /flows/{flowId}/debug/pins:
+    get:
+      summary: List every pinned sample (DBG-130) for a flow.
+      parameters:
+        - $ref: "#/components/parameters/FlowId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/DebugPin" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /flows/{flowId}/nodes/{nodeId}/pins/{port}:
+    put:
+      summary: Pin a captured sample value to a node's output port (DBG-130).
+      parameters:
+        - $ref: "#/components/parameters/FlowId"
+        - name: nodeId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: port
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties:
+                value: {}
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DebugPin" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    delete:
+      summary: Remove a pinned sample.
+      parameters:
+        - $ref: "#/components/parameters/FlowId"
+        - name: nodeId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: port
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "204": { description: No Content }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /flows/{flowId}/debug/events/{eventId}:
+    get:
+      summary: Fetch a debug event's untruncated payload (DBG-110 "load full on demand").
+      parameters:
+        - $ref: "#/components/parameters/FlowId"
+        - name: eventId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valueJson: { type: string }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /node-types:
     get:
       summary: >
@@ -619,3 +752,26 @@ components:
         configSchema:
           type: object
           description: A JSON Schema for this type's "config" object; the editor generates its config form from this.
+
+    ExecuteNodeResult:
+      type: object
+      properties:
+        outputs:
+          type: array
+          items:
+            type: object
+            properties:
+              port: { type: string }
+              datagram: { type: object }
+        error:
+          type: string
+          nullable: true
+
+    DebugPin:
+      type: object
+      properties:
+        flowId: { type: string }
+        nodeId: { type: string }
+        port: { type: string }
+        value: {}
+        updatedAt: { type: string, format: date-time }

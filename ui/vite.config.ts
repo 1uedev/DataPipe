@@ -10,7 +10,7 @@ export default defineConfig({
     // and `make dev`) so the browser only ever talks same-origin — no CORS
     // config needed on the control plane itself.
     proxy: {
-      '/api/v1': { target: 'http://localhost:8080', changeOrigin: true },
+      '/api/v1': { target: 'http://localhost:8080', changeOrigin: true, ws: true },
     },
   },
   test: {
