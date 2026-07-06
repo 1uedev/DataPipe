@@ -2,6 +2,16 @@
 
 Reverse chronological. Every finished step gets one entry: date, what was done, requirement IDs touched, commit hash(es).
 
+## 2026-07-06 — Increment 2: flow model + engine lifecycle
+
+* **Flow file model + canonical serializer** (Flow-File-Format §2-3, §7.6): `engine/flow/file.go` (FlowFile/Graph/Node/Wire/ErrorPolicy/Layout/subflow-interface structs matching the spec's field names exactly), `engine/flow/canonical.go` (sorted keys via a `json.Number` generic round-trip, nodes/wires/env sorted by id/name, 2-space indent). Proven a stable fixed point and independent of input array order by tests using the spec's own example flow.
+* **Validator** (§7 subset): `engine/flow/validate.go` — unique node/wire ids, wire endpoint existence and port direction (including the implicit `error` output port), registered node types, ENG-100 streaming-mode-requires-a-source-node. Connection-ref resolution and JSON-Schema config validation (§7 rules 2-3) deferred (see TODO.md).
+* **Node execution** (`engine/flow/node.go`, `registry.go`, `runner.go`): `Source`/`Processor` interfaces behind a global type registry; the runner recovers panics at the node boundary (ARC-150) and applies ERR-100's uniform per-node error policy (fail / retry-with-backoff / errorPort / discard), building the ERR-100 error object (message/code/node/stack/attempt) and error datagram for the errorPort case.
+* **Graph instantiation + hot deploy** (ENG-140, `engine/flow/graph.go`): `Deploy` wires nodes together over `engine/bus` and restarts only nodes whose own definition or incident wiring changed; `bus.Wire` object identity is tracked per (node, input port) independently of node-instance identity so a kept node never writes into an abandoned wire when a neighbor restarts. `NodeStats` exposes start counts for hot-deploy observability.
+* **Three trivial node types**: `engine/nodes/inject` (CON-600-style manual/repeat trigger), `engine/nodes/set` (PROC-110 minimal literal field ops), `engine/nodes/debuglog` (DBG-110 minimal, logs via `slog`).
+* **CLI**: `datapipe deploy <flow.json> [-for <duration>]` embeds the engine in-process (ARC-130 all-in-one style); `examples/inject-set-log.flow.json` demonstrates inject → set → debug-log — verified manually, logs the processed datagram once per second.
+* **Verified**: `TestENG140_HotDeployRestartsOnlyModifiedNodes` proves a redeploy changing only one node's config restarts just that node while its untouched neighbors keep running and the pipeline keeps delivering with the new config in effect; `make lint`, `make build`, `make test` pass; every new package passes under `go test -race`. `(ef2e8cb)`
+
 ## 2026-07-06 — ADR review (partial): ADR-001 accepted, ADR-003 deferred
 
 * Holger approved **ADR-001** (Go engine core) — `docs/Architecture.md` status updated to accepted.
