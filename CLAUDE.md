@@ -10,6 +10,8 @@ DataPipe is a web-based visual data flow platform (Node-RED + n8n class) focused
 | `docs/Architecture.md` | Stack decisions (Go engine + control plane, React/React Flow UI, Postgres, optional NATS), component boundaries, repo layout, ADRs |
 | `docs/Flow-File-Format.md` | The core JSON contract between editor, control plane, runtime — implement against this, never invent fields |
 | `docs/Development-Plan.md` | Increment order and "Done when" acceptance lines — build in this order |
+| `TODO.md` | The live working queue — always pick the top unchecked item |
+| `DONE.md` | Log of completed steps with requirement IDs and commit hashes |
 
 ## Ground rules
 
@@ -27,6 +29,7 @@ Remote: `https://github.com/1uedev/DataPipe.git` (origin, branch `main`).
 * Commit after every completed work step with a message citing the requirement IDs touched; **push to origin after each step/increment** so the remote always reflects the latest state.
 * Never commit secrets, credentials, or `.env` files (see `.gitignore`); flow exports must be secret-free by construction (SEC-120).
 * If a push fails for lack of credentials in the current environment, finish the commit locally and tell Holger to push — never leave work uncommitted.
+* **After every completed step**: move the finished item from `TODO.md` to `DONE.md` (date, summary, requirement IDs, commit hash) and add any newly discovered follow-up work to `TODO.md`. These two files are part of the same commit as the work itself.
 
 ## Stack and layout (from Architecture.md)
 
