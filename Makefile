@@ -1,4 +1,4 @@
-GO_MODULES := proto/gen/go engine controlplane cli sdk
+GO_MODULES := proto/gen/go engine controlplane cli sdk tests
 
 .PHONY: dev test itest bench lint proto build
 
@@ -14,13 +14,13 @@ test:
 	cd ui && pnpm run build
 
 itest:
-	go test -tags itest ./tests/...
+	cd tests && go test -tags itest ./...
 
 bench:
-	go test -run '^$$' -bench . ./tests/bench/...
+	cd tests && go test -run '^$$' -bench . ./bench/...
 
 lint:
-	golangci-lint run ./engine/... ./controlplane/... ./cli/... ./sdk/...
+	golangci-lint run ./engine/... ./controlplane/... ./cli/... ./sdk/... ./tests/...
 	cd ui && pnpm run lint
 	cd proto && buf lint
 

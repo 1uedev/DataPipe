@@ -9,6 +9,7 @@ require (
 )
 
 require (
+	github.com/oklog/ulid/v2 v2.1.1 // indirect
 	golang.org/x/net v0.53.0 // indirect
 	golang.org/x/sys v0.43.0 // indirect
 	golang.org/x/text v0.36.0 // indirect

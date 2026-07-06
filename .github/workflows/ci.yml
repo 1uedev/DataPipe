@@ -32,19 +32,21 @@ jobs:
         run: go build ./engine/... ./controlplane/... ./cli/... ./sdk/...
       - name: Vet
         run: |
-          for m in proto/gen/go engine controlplane cli sdk; do
+          for m in proto/gen/go engine controlplane cli sdk tests; do
             (cd "$m" && go vet ./...)
           done
       - name: Test
         run: |
-          for m in engine controlplane cli sdk; do
-            (cd "$m" && go test ./...)
+          for m in engine controlplane cli sdk tests; do
+            (cd "$m" && go test -race ./...)
           done
+      - name: Bench (report only; regression gate activates at Increment 6)
+        run: cd tests && go test -run '^$' -bench . ./bench/...
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
           version: v2.12.2
-          args: ./engine/... ./controlplane/... ./cli/... ./sdk/...
+          args: ./engine/... ./controlplane/... ./cli/... ./sdk/... ./tests/...
 
   ui:
     runs-on: ubuntu-latest

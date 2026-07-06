@@ -97,9 +97,9 @@ In-memory: Go struct per DGM-100 with copy-on-write payload for fan-out (BUS-140
 
 | # | Decision | Status |
 |---|---|---|
-| ADR-001 | Go engine core, one codebase for server and edge runtime | proposed |
+| ADR-001 | Go engine core, one codebase for server and edge runtime | **accepted** (2026-07-06) |
 | ADR-002 | JS script nodes via embedded goja; Python via out-of-process plugin (P2) | proposed |
-| ADR-003 | SECS/GEM implemented natively in Go (HSMS first); .NET secs4net sidecar as fallback | proposed |
+| ADR-003 | SECS/GEM implemented natively in Go (HSMS first); .NET secs4net sidecar as fallback | proposed — native-vs-sidecar call deferred to the Increment 11 HSMS spike (confirmed with Holger 2026-07-06); not a blocker for Increment 1 |
 | ADR-004 | React + React Flow editor; config UIs generated from JSON Schema | proposed |
 | ADR-005 | PostgreSQL as system store; SQLite mode for all-in-one installs | proposed |
 | ADR-006 | NATS JetStream optional for durability/scale-out; in-process bus default | proposed |
