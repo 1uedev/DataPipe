@@ -4,12 +4,10 @@ Working queue for DataPipe. Top item is always next. Detail and acceptance crite
 
 ## Now
 
-- [ ] **Review ADRs** in `docs/Architecture.md` (esp. ADR-001 Go engine, ADR-003 SECS/GEM native-vs-sidecar) — Holger approves or vetoes before Increment 1 locks the stack in
-- [ ] **Increment 1 — Datagram + internal bus** (DGM-100..140, BUS-100/110/140, ENG-120)
+- [ ] **Increment 2 — Flow model + engine lifecycle** (flow file round-trip, hot deploy, ERR-100)
 
 ## Next (in order, from docs/Development-Plan.md)
 
-- [ ] Increment 2 — Flow model + engine lifecycle (flow file round-trip, hot deploy, ERR-100)
 - [ ] Increment 3 — Control plane core + REST API (auth, RBAC, credentials, versions)
 - [ ] Increment 4 — Editor MVP (canvas, palette, schema-generated config panels, deploy)
 - [ ] Increment 5 — Live debugging (inspector, debug sidebar, wire animation, data pinning)
