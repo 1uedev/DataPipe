@@ -56,4 +56,4 @@ make lint         # go + ts linters
 
 ## Current state
 
-Greenfield. Next step: Increment 0 of `docs/Development-Plan.md` (repo skeleton, CI, walking skeleton). Update this section whenever an increment completes.
+Increment 0 done: monorepo skeleton (Go workspace + pnpm workspace), buf-managed `proto/` with a first `RuntimeRegistryService`, `engine`/`controlplane` walking-skeleton binaries that register over gRPC and expose `/healthz`, a placeholder `ui/` (Vite+React+TS), Docker/Compose (`make dev`), and CI (`.github/workflows/ci.yml`). Next step: Increment 1 of `docs/Development-Plan.md` (datagram + internal bus). Update this section whenever an increment completes.

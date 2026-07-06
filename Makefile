@@ -3,7 +3,8 @@ GO_MODULES := proto/gen/go engine controlplane cli sdk
 .PHONY: dev test itest bench lint proto build
 
 dev:
-	docker compose -f deploy/docker-compose.yml up --build
+	docker compose -f deploy/docker-compose.yml up --build -d
+	cd ui && pnpm run dev
 
 build:
 	go build ./engine/... ./controlplane/... ./cli/... ./sdk/...
