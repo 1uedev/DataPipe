@@ -282,6 +282,121 @@ func (x *HeartbeatResponse) GetOk() bool {
 	return false
 }
 
+type DeployStreamRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RuntimeId     string                 `protobuf:"bytes,1,opt,name=runtime_id,json=runtimeId,proto3" json:"runtime_id,omitempty"`
+	SessionToken  string                 `protobuf:"bytes,2,opt,name=session_token,json=sessionToken,proto3" json:"session_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeployStreamRequest) Reset() {
+	*x = DeployStreamRequest{}
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeployStreamRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeployStreamRequest) ProtoMessage() {}
+
+func (x *DeployStreamRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeployStreamRequest.ProtoReflect.Descriptor instead.
+func (*DeployStreamRequest) Descriptor() ([]byte, []int) {
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *DeployStreamRequest) GetRuntimeId() string {
+	if x != nil {
+		return x.RuntimeId
+	}
+	return ""
+}
+
+func (x *DeployStreamRequest) GetSessionToken() string {
+	if x != nil {
+		return x.SessionToken
+	}
+	return ""
+}
+
+// DeployStreamResponse carries one flow's canonical JSON
+// (Flow-File-Format.md) for the runtime to validate and apply via its
+// local flow.Deployment.
+type DeployStreamResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	FlowId        string                 `protobuf:"bytes,1,opt,name=flow_id,json=flowId,proto3" json:"flow_id,omitempty"`
+	Version       int64                  `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
+	FlowJson      string                 `protobuf:"bytes,3,opt,name=flow_json,json=flowJson,proto3" json:"flow_json,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeployStreamResponse) Reset() {
+	*x = DeployStreamResponse{}
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeployStreamResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeployStreamResponse) ProtoMessage() {}
+
+func (x *DeployStreamResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeployStreamResponse.ProtoReflect.Descriptor instead.
+func (*DeployStreamResponse) Descriptor() ([]byte, []int) {
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *DeployStreamResponse) GetFlowId() string {
+	if x != nil {
+		return x.FlowId
+	}
+	return ""
+}
+
+func (x *DeployStreamResponse) GetVersion() int64 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *DeployStreamResponse) GetFlowJson() string {
+	if x != nil {
+		return x.FlowJson
+	}
+	return ""
+}
+
 var File_datapipe_runtime_v1_runtime_proto protoreflect.FileDescriptor
 
 const file_datapipe_runtime_v1_runtime_proto_rawDesc = "" +
@@ -300,14 +415,23 @@ const file_datapipe_runtime_v1_runtime_proto_rawDesc = "" +
 	"runtime_id\x18\x01 \x01(\tR\truntimeId\x12#\n" +
 	"\rsession_token\x18\x02 \x01(\tR\fsessionToken\"#\n" +
 	"\x11HeartbeatResponse\x12\x0e\n" +
-	"\x02ok\x18\x01 \x01(\bR\x02ok*[\n" +
+	"\x02ok\x18\x01 \x01(\bR\x02ok\"Y\n" +
+	"\x13DeployStreamRequest\x12\x1d\n" +
+	"\n" +
+	"runtime_id\x18\x01 \x01(\tR\truntimeId\x12#\n" +
+	"\rsession_token\x18\x02 \x01(\tR\fsessionToken\"f\n" +
+	"\x14DeployStreamResponse\x12\x17\n" +
+	"\aflow_id\x18\x01 \x01(\tR\x06flowId\x12\x18\n" +
+	"\aversion\x18\x02 \x01(\x03R\aversion\x12\x1b\n" +
+	"\tflow_json\x18\x03 \x01(\tR\bflowJson*[\n" +
 	"\vRuntimeKind\x12\x1c\n" +
 	"\x18RUNTIME_KIND_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13RUNTIME_KIND_SERVER\x10\x01\x12\x15\n" +
-	"\x11RUNTIME_KIND_EDGE\x10\x022\xcd\x01\n" +
+	"\x11RUNTIME_KIND_EDGE\x10\x022\xb4\x02\n" +
 	"\x16RuntimeRegistryService\x12W\n" +
 	"\bRegister\x12$.datapipe.runtime.v1.RegisterRequest\x1a%.datapipe.runtime.v1.RegisterResponse\x12Z\n" +
-	"\tHeartbeat\x12%.datapipe.runtime.v1.HeartbeatRequest\x1a&.datapipe.runtime.v1.HeartbeatResponseBGZEgithub.com/1uedev/DataPipe/proto/gen/go/datapipe/runtime/v1;runtimev1b\x06proto3"
+	"\tHeartbeat\x12%.datapipe.runtime.v1.HeartbeatRequest\x1a&.datapipe.runtime.v1.HeartbeatResponse\x12e\n" +
+	"\fDeployStream\x12(.datapipe.runtime.v1.DeployStreamRequest\x1a).datapipe.runtime.v1.DeployStreamResponse0\x01BGZEgithub.com/1uedev/DataPipe/proto/gen/go/datapipe/runtime/v1;runtimev1b\x06proto3"
 
 var (
 	file_datapipe_runtime_v1_runtime_proto_rawDescOnce sync.Once
@@ -322,22 +446,26 @@ func file_datapipe_runtime_v1_runtime_proto_rawDescGZIP() []byte {
 }
 
 var file_datapipe_runtime_v1_runtime_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_datapipe_runtime_v1_runtime_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_datapipe_runtime_v1_runtime_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_datapipe_runtime_v1_runtime_proto_goTypes = []any{
-	(RuntimeKind)(0),          // 0: datapipe.runtime.v1.RuntimeKind
-	(*RegisterRequest)(nil),   // 1: datapipe.runtime.v1.RegisterRequest
-	(*RegisterResponse)(nil),  // 2: datapipe.runtime.v1.RegisterResponse
-	(*HeartbeatRequest)(nil),  // 3: datapipe.runtime.v1.HeartbeatRequest
-	(*HeartbeatResponse)(nil), // 4: datapipe.runtime.v1.HeartbeatResponse
+	(RuntimeKind)(0),             // 0: datapipe.runtime.v1.RuntimeKind
+	(*RegisterRequest)(nil),      // 1: datapipe.runtime.v1.RegisterRequest
+	(*RegisterResponse)(nil),     // 2: datapipe.runtime.v1.RegisterResponse
+	(*HeartbeatRequest)(nil),     // 3: datapipe.runtime.v1.HeartbeatRequest
+	(*HeartbeatResponse)(nil),    // 4: datapipe.runtime.v1.HeartbeatResponse
+	(*DeployStreamRequest)(nil),  // 5: datapipe.runtime.v1.DeployStreamRequest
+	(*DeployStreamResponse)(nil), // 6: datapipe.runtime.v1.DeployStreamResponse
 }
 var file_datapipe_runtime_v1_runtime_proto_depIdxs = []int32{
 	0, // 0: datapipe.runtime.v1.RegisterRequest.kind:type_name -> datapipe.runtime.v1.RuntimeKind
 	1, // 1: datapipe.runtime.v1.RuntimeRegistryService.Register:input_type -> datapipe.runtime.v1.RegisterRequest
 	3, // 2: datapipe.runtime.v1.RuntimeRegistryService.Heartbeat:input_type -> datapipe.runtime.v1.HeartbeatRequest
-	2, // 3: datapipe.runtime.v1.RuntimeRegistryService.Register:output_type -> datapipe.runtime.v1.RegisterResponse
-	4, // 4: datapipe.runtime.v1.RuntimeRegistryService.Heartbeat:output_type -> datapipe.runtime.v1.HeartbeatResponse
-	3, // [3:5] is the sub-list for method output_type
-	1, // [1:3] is the sub-list for method input_type
+	5, // 3: datapipe.runtime.v1.RuntimeRegistryService.DeployStream:input_type -> datapipe.runtime.v1.DeployStreamRequest
+	2, // 4: datapipe.runtime.v1.RuntimeRegistryService.Register:output_type -> datapipe.runtime.v1.RegisterResponse
+	4, // 5: datapipe.runtime.v1.RuntimeRegistryService.Heartbeat:output_type -> datapipe.runtime.v1.HeartbeatResponse
+	6, // 6: datapipe.runtime.v1.RuntimeRegistryService.DeployStream:output_type -> datapipe.runtime.v1.DeployStreamResponse
+	4, // [4:7] is the sub-list for method output_type
+	1, // [1:4] is the sub-list for method input_type
 	1, // [1:1] is the sub-list for extension type_name
 	1, // [1:1] is the sub-list for extension extendee
 	0, // [0:1] is the sub-list for field type_name
@@ -354,7 +482,7 @@ func file_datapipe_runtime_v1_runtime_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_datapipe_runtime_v1_runtime_proto_rawDesc), len(file_datapipe_runtime_v1_runtime_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   4,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

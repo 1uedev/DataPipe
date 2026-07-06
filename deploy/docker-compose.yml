@@ -23,6 +23,12 @@ services:
       DATABASE_URL: postgres://datapipe:datapipe@postgres:5432/datapipe?sslmode=disable
       CONTROLPLANE_HTTP_ADDR: ":8080"
       CONTROLPLANE_GRPC_ADDR: ":9090"
+      # Dev-only defaults (like the Postgres password above) — never reuse
+      # these outside a local `make dev` run. DATAPIPE_MASTER_KEY is a
+      # base64-encoded 32-byte AES-256 key (SEC-120 envelope encryption).
+      DATAPIPE_MASTER_KEY: "ZMgqhDupxOEoZQ/CtaBARa02JyL94oD7ee26ZXAtbPQ="
+      DATAPIPE_ADMIN_USERNAME: "admin"
+      DATAPIPE_ADMIN_PASSWORD: "dev-only-change-me"
     ports:
       - "8080:8080"
       - "9090:9090"

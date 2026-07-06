@@ -12,6 +12,12 @@ option go_package = "github.com/1uedev/DataPipe/proto/gen/go/datapipe/runtime/v1
 service RuntimeRegistryService {
   rpc Register(RegisterRequest) returns (RegisterResponse);
   rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+
+  // DeployStream is opened by the runtime once, after Register, and kept
+  // open for the runtime's lifetime: the control plane pushes one response
+  // per deploy as REST API deploys happen (Increment 3, ARC-210/ADR-007
+  // "streams for: deploy commands, flow status, health").
+  rpc DeployStream(DeployStreamRequest) returns (stream DeployStreamResponse);
 }
 
 enum RuntimeKind {
@@ -38,4 +44,18 @@ message HeartbeatRequest {
 
 message HeartbeatResponse {
   bool ok = 1;
+}
+
+message DeployStreamRequest {
+  string runtime_id = 1;
+  string session_token = 2;
+}
+
+// DeployStreamResponse carries one flow's canonical JSON
+// (Flow-File-Format.md) for the runtime to validate and apply via its
+// local flow.Deployment.
+message DeployStreamResponse {
+  string flow_id = 1;
+  int64 version = 2;
+  string flow_json = 3;
 }

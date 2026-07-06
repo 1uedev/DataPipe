@@ -1,0 +1,592 @@
+openapi: 3.0.3
+info:
+  title: DataPipe Control Plane API
+  version: "1"
+  description: >
+    Increment 3 (Development-Plan.md): projects, flows CRUD + deploy +
+    immutable version history (VCS-110), connections + write-only encrypted
+    credentials (SEC-120), local-user auth + RBAC (SEC-100/110), audit log
+    (SEC-140). Everything the editor UI will ever do goes through this API
+    (ARC-110) — no UI-only backdoor.
+servers:
+  - url: /api/v1
+
+security:
+  - bearerAuth: []
+
+paths:
+  /auth/login:
+    post:
+      summary: Authenticate with a local account
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string }
+                password: { type: string, format: password }
+      responses:
+        "200":
+          description: Session created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string }
+                  expiresAt: { type: string, format: date-time }
+        "401": { description: Invalid credentials }
+
+  /auth/logout:
+    post:
+      summary: Revoke the current session
+      responses:
+        "204": { description: Logged out }
+
+  /auth/me:
+    get:
+      summary: Current authenticated user
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+
+  /users:
+    get:
+      summary: List users (System Admin only)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/User" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      summary: Create a user (System Admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string }
+                password: { type: string, format: password }
+                systemRole: { type: string, enum: [none, system_admin], default: none }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /projects:
+    get:
+      summary: List projects visible to the current user
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Project" }
+    post:
+      summary: Create a project (creator becomes Project Admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                description: { type: string }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Project" }
+
+  /projects/{projectId}:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    get:
+      summary: Get a project
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Project" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      summary: Update a project (Project Admin+)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                description: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Project" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    delete:
+      summary: Delete a project (Project Admin+)
+      responses:
+        "204": { description: Deleted }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /projects/{projectId}/members/{userId}:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+      - name: userId
+        in: path
+        required: true
+        schema: { type: string }
+    put:
+      summary: Set a user's role on this project (Project Admin+)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: { $ref: "#/components/schemas/ProjectRole" }
+      responses:
+        "200": { description: OK }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    delete:
+      summary: Remove a user from this project (Project Admin+)
+      responses:
+        "204": { description: Removed }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /projects/{projectId}/flows:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    get:
+      summary: List flows in a project
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Flow" }
+    post:
+      summary: Create a flow (Editor+)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, content]
+              properties:
+                name: { type: string }
+                content:
+                  description: A Flow-File-Format.md flow document (draft).
+                  type: object
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Flow" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /flows/{flowId}:
+    parameters:
+      - $ref: "#/components/parameters/FlowId"
+    get:
+      summary: Get a flow (current draft + deployed version pointer)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Flow" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      summary: Update the flow's draft content (Editor+)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                content: { type: object }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Flow" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    delete:
+      summary: Delete a flow (Editor+)
+      responses:
+        "204": { description: Deleted }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /flows/{flowId}/deploy:
+    parameters:
+      - $ref: "#/components/parameters/FlowId"
+    post:
+      summary: >
+        Validate the current draft, create an immutable version (VCS-110),
+        and push it to the flow's assigned runtime.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                comment: { type: string }
+      responses:
+        "201":
+          description: Deployed; the new version
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FlowVersion" }
+        "400": { description: Flow file failed validation }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { description: No runtime currently connected to deploy to }
+
+  /flows/{flowId}/versions:
+    parameters:
+      - $ref: "#/components/parameters/FlowId"
+    get:
+      summary: List immutable versions (VCS-110), newest first
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/FlowVersion" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /flows/{flowId}/versions/{version}:
+    parameters:
+      - $ref: "#/components/parameters/FlowId"
+      - name: version
+        in: path
+        required: true
+        schema: { type: integer }
+    get:
+      summary: Get one immutable version
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FlowVersion" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /flows/{flowId}/versions/{version}/rollback:
+    parameters:
+      - $ref: "#/components/parameters/FlowId"
+      - name: version
+        in: path
+        required: true
+        schema: { type: integer }
+    post:
+      summary: >
+        Roll back to an older version's content: copies it into the draft
+        and immediately deploys it as a brand-new version (one-click
+        rollback "as a new version", VCS-110) — never rewrites history.
+      responses:
+        "201":
+          description: The new version created by the rollback
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FlowVersion" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /projects/{projectId}/connections:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    get:
+      summary: List connections in a project
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Connection" }
+    post:
+      summary: Create a connection (Editor+)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, type, config]
+              properties:
+                name: { type: string }
+                type: { type: string, description: "e.g. opcua, mqtt, sql-postgres" }
+                config:
+                  type: object
+                  description: Non-secret connection settings only.
+                credentialId:
+                  type: string
+                  description: Reference to a previously created credential; never a secret value.
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Connection" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /connections/{connectionId}:
+    parameters:
+      - name: connectionId
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      summary: Update a connection (Editor+)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                config: { type: object }
+                credentialId: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Connection" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    delete:
+      summary: Delete a connection (Editor+)
+      responses:
+        "204": { description: Deleted }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /projects/{projectId}/credentials:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    get:
+      summary: List credentials (metadata only — values are write-only, SEC-120)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/CredentialMeta" }
+    post:
+      summary: Create a credential (Editor+); the value is never returned again
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, value]
+              properties:
+                name: { type: string }
+                value:
+                  type: object
+                  description: Secret payload (e.g. {"username":"...","password":"..."}); encrypted at rest, never echoed back.
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CredentialMeta" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /credentials/{credentialId}:
+    parameters:
+      - name: credentialId
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      summary: Delete a credential (Editor+)
+      responses:
+        "204": { description: Deleted }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /runtimes:
+    get:
+      summary: List currently registered runtimes (read-only fleet view)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Runtime" }
+
+  /audit-log:
+    get:
+      summary: Read the tamper-evident audit log (System/Project Admin)
+      parameters:
+        - name: projectId
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AuditEntry" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Opaque session token from POST /auth/login.
+
+  parameters:
+    ProjectId:
+      name: projectId
+      in: path
+      required: true
+      schema: { type: string }
+    FlowId:
+      name: flowId
+      in: path
+      required: true
+      schema: { type: string }
+
+  responses:
+    Forbidden:
+      description: Caller's role does not permit this action
+    NotFound:
+      description: Resource does not exist (or is invisible to this caller)
+
+  schemas:
+    ProjectRole:
+      type: string
+      enum: [viewer, operator, editor, project_admin]
+
+    User:
+      type: object
+      properties:
+        id: { type: string }
+        username: { type: string }
+        systemRole: { type: string, enum: [none, system_admin] }
+        createdAt: { type: string, format: date-time }
+
+    Project:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    Flow:
+      type: object
+      properties:
+        id: { type: string }
+        projectId: { type: string }
+        name: { type: string }
+        content:
+          type: object
+          description: Current draft (Flow-File-Format.md flow document).
+        deployedVersion:
+          type: integer
+          nullable: true
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    FlowVersion:
+      type: object
+      description: Immutable once created (VCS-110).
+      properties:
+        flowId: { type: string }
+        version: { type: integer }
+        content: { type: object }
+        author: { type: string }
+        comment: { type: string }
+        createdAt: { type: string, format: date-time }
+        deployedAt: { type: string, format: date-time, nullable: true }
+
+    Connection:
+      type: object
+      properties:
+        id: { type: string }
+        projectId: { type: string }
+        name: { type: string }
+        type: { type: string }
+        config: { type: object }
+        credentialId: { type: string, nullable: true }
+
+    CredentialMeta:
+      type: object
+      description: Never carries the secret value (SEC-120).
+      properties:
+        id: { type: string }
+        projectId: { type: string }
+        name: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    Runtime:
+      type: object
+      properties:
+        runtimeId: { type: string }
+        kind: { type: string, enum: [server, edge] }
+        version: { type: string }
+        lastSeen: { type: string, format: date-time }
+
+    AuditEntry:
+      type: object
+      properties:
+        id: { type: integer }
+        at: { type: string, format: date-time }
+        actorUserId: { type: string }
+        action: { type: string }
+        objectType: { type: string }
+        objectId: { type: string }
+        hash:
+          type: string
+          description: sha256(prevHash || canonical(entry)) — tamper-evident chain (SEC-140).

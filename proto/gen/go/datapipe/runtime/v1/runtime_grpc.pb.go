@@ -23,8 +23,9 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	RuntimeRegistryService_Register_FullMethodName  = "/datapipe.runtime.v1.RuntimeRegistryService/Register"
-	RuntimeRegistryService_Heartbeat_FullMethodName = "/datapipe.runtime.v1.RuntimeRegistryService/Heartbeat"
+	RuntimeRegistryService_Register_FullMethodName     = "/datapipe.runtime.v1.RuntimeRegistryService/Register"
+	RuntimeRegistryService_Heartbeat_FullMethodName    = "/datapipe.runtime.v1.RuntimeRegistryService/Heartbeat"
+	RuntimeRegistryService_DeployStream_FullMethodName = "/datapipe.runtime.v1.RuntimeRegistryService/DeployStream"
 )
 
 // RuntimeRegistryServiceClient is the client API for RuntimeRegistryService service.
@@ -36,6 +37,11 @@ const (
 type RuntimeRegistryServiceClient interface {
 	Register(ctx context.Context, in *RegisterRequest, opts ...grpc.CallOption) (*RegisterResponse, error)
 	Heartbeat(ctx context.Context, in *HeartbeatRequest, opts ...grpc.CallOption) (*HeartbeatResponse, error)
+	// DeployStream is opened by the runtime once, after Register, and kept
+	// open for the runtime's lifetime: the control plane pushes one response
+	// per deploy as REST API deploys happen (Increment 3, ARC-210/ADR-007
+	// "streams for: deploy commands, flow status, health").
+	DeployStream(ctx context.Context, in *DeployStreamRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[DeployStreamResponse], error)
 }
 
 type runtimeRegistryServiceClient struct {
@@ -66,6 +72,25 @@ func (c *runtimeRegistryServiceClient) Heartbeat(ctx context.Context, in *Heartb
 	return out, nil
 }
 
+func (c *runtimeRegistryServiceClient) DeployStream(ctx context.Context, in *DeployStreamRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[DeployStreamResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &RuntimeRegistryService_ServiceDesc.Streams[0], RuntimeRegistryService_DeployStream_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[DeployStreamRequest, DeployStreamResponse]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type RuntimeRegistryService_DeployStreamClient = grpc.ServerStreamingClient[DeployStreamResponse]
+
 // RuntimeRegistryServiceServer is the server API for RuntimeRegistryService service.
 // All implementations must embed UnimplementedRuntimeRegistryServiceServer
 // for forward compatibility.
@@ -75,6 +100,11 @@ func (c *runtimeRegistryServiceClient) Heartbeat(ctx context.Context, in *Heartb
 type RuntimeRegistryServiceServer interface {
 	Register(context.Context, *RegisterRequest) (*RegisterResponse, error)
 	Heartbeat(context.Context, *HeartbeatRequest) (*HeartbeatResponse, error)
+	// DeployStream is opened by the runtime once, after Register, and kept
+	// open for the runtime's lifetime: the control plane pushes one response
+	// per deploy as REST API deploys happen (Increment 3, ARC-210/ADR-007
+	// "streams for: deploy commands, flow status, health").
+	DeployStream(*DeployStreamRequest, grpc.ServerStreamingServer[DeployStreamResponse]) error
 	mustEmbedUnimplementedRuntimeRegistryServiceServer()
 }
 
@@ -90,6 +120,9 @@ func (UnimplementedRuntimeRegistryServiceServer) Register(context.Context, *Regi
 }
 func (UnimplementedRuntimeRegistryServiceServer) Heartbeat(context.Context, *HeartbeatRequest) (*HeartbeatResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Heartbeat not implemented")
+}
+func (UnimplementedRuntimeRegistryServiceServer) DeployStream(*DeployStreamRequest, grpc.ServerStreamingServer[DeployStreamResponse]) error {
+	return status.Error(codes.Unimplemented, "method DeployStream not implemented")
 }
 func (UnimplementedRuntimeRegistryServiceServer) mustEmbedUnimplementedRuntimeRegistryServiceServer() {
 }
@@ -149,6 +182,17 @@ func _RuntimeRegistryService_Heartbeat_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RuntimeRegistryService_DeployStream_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(DeployStreamRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(RuntimeRegistryServiceServer).DeployStream(m, &grpc.GenericServerStream[DeployStreamRequest, DeployStreamResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type RuntimeRegistryService_DeployStreamServer = grpc.ServerStreamingServer[DeployStreamResponse]
+
 // RuntimeRegistryService_ServiceDesc is the grpc.ServiceDesc for RuntimeRegistryService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -165,6 +209,12 @@ var RuntimeRegistryService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _RuntimeRegistryService_Heartbeat_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "DeployStream",
+			Handler:       _RuntimeRegistryService_DeployStream_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "datapipe/runtime/v1/runtime.proto",
 }

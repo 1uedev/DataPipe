@@ -1,6 +1,7 @@
 // Package registry implements the control-plane side of runtime
-// registration (ARC-210, ADR-007): the walking-skeleton slice of what will
-// grow into deploy orchestration and fleet management.
+// registration (ARC-210, ADR-007) and deploy orchestration (Increment 3):
+// runtimes register and heartbeat, then open a DeployStream the control
+// plane pushes flow deployments down as REST API deploys happen.
 package registry
 
 import (
@@ -13,16 +14,21 @@ import (
 	"github.com/google/uuid"
 )
 
+// deployChanBuffer bounds how many pending deploy commands a runtime can
+// have queued before DeployFlow reports it as unavailable.
+const deployChanBuffer = 8
+
 type runtimeState struct {
 	kind         runtimev1.RuntimeKind
 	version      string
 	sessionToken string
 	lastSeen     time.Time
+	deployCh     chan *runtimev1.DeployStreamResponse // non-nil once DeployStream is open
 }
 
 // Service implements runtimev1.RuntimeRegistryServiceServer with an
 // in-memory registry. Persisting fleet state to Postgres is out of scope
-// for the Increment 0 walking skeleton.
+// for now (see TODO.md).
 type Service struct {
 	runtimev1.UnimplementedRuntimeRegistryServiceServer
 
@@ -63,6 +69,107 @@ func (s *Service) Heartbeat(ctx context.Context, req *runtimev1.HeartbeatRequest
 	}
 	rt.lastSeen = time.Now()
 	return &runtimev1.HeartbeatResponse{Ok: true}, nil
+}
+
+// DeployStream is opened by a runtime once, right after Register, and kept
+// open for the runtime's lifetime; DeployFlow pushes into the channel this
+// registers, and every pushed command is forwarded down the stream.
+func (s *Service) DeployStream(req *runtimev1.DeployStreamRequest, stream runtimev1.RuntimeRegistryService_DeployStreamServer) error {
+	runtimeID := req.GetRuntimeId()
+
+	s.mu.Lock()
+	rt, ok := s.runtimes[runtimeID]
+	if !ok || rt.sessionToken != req.GetSessionToken() {
+		s.mu.Unlock()
+		return fmt.Errorf("unknown runtime or session")
+	}
+	ch := make(chan *runtimev1.DeployStreamResponse, deployChanBuffer)
+	rt.deployCh = ch
+	s.mu.Unlock()
+
+	defer func() {
+		s.mu.Lock()
+		if cur, ok := s.runtimes[runtimeID]; ok && cur.deployCh == ch {
+			cur.deployCh = nil
+		}
+		s.mu.Unlock()
+	}()
+
+	for {
+		select {
+		case cmd := <-ch:
+			if err := stream.Send(cmd); err != nil {
+				return err
+			}
+		case <-stream.Context().Done():
+			return stream.Context().Err()
+		}
+	}
+}
+
+// DeployFlow implements controlplane/internal/api.Deployer: it pushes the
+// flow to every currently connected runtime with an open DeployStream.
+// Runtime-group assignment (Flow-File-Format.md's runtimeAssignment,
+// UI-220) is deferred to the fleet-management work of Increment 9 — for
+// now every connected runtime receives every deploy.
+func (s *Service) DeployFlow(ctx context.Context, flowID string, version int64, flowJSON string) error {
+	s.mu.Lock()
+	var channels []chan *runtimev1.DeployStreamResponse
+	for _, rt := range s.runtimes {
+		if rt.deployCh != nil {
+			channels = append(channels, rt.deployCh)
+		}
+	}
+	s.mu.Unlock()
+
+	if len(channels) == 0 {
+		return fmt.Errorf("no runtime currently connected")
+	}
+
+	cmd := &runtimev1.DeployStreamResponse{FlowId: flowID, Version: version, FlowJson: flowJSON}
+	for _, ch := range channels {
+		select {
+		case ch <- cmd:
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			return fmt.Errorf("runtime deploy queue full")
+		}
+	}
+	return nil
+}
+
+// RuntimeSnapshot is a read-only view of one registered runtime, for the
+// fleet listing (GET /runtimes).
+type RuntimeSnapshot struct {
+	RuntimeID string
+	Kind      string
+	Version   string
+	LastSeen  time.Time
+}
+
+// ListRuntimes returns every currently registered runtime.
+func (s *Service) ListRuntimes() []RuntimeSnapshot {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	snaps := make([]RuntimeSnapshot, 0, len(s.runtimes))
+	for id, rt := range s.runtimes {
+		snaps = append(snaps, RuntimeSnapshot{
+			RuntimeID: id,
+			Kind:      runtimeKindString(rt.kind),
+			Version:   rt.version,
+			LastSeen:  rt.lastSeen,
+		})
+	}
+	return snaps
+}
+
+func runtimeKindString(k runtimev1.RuntimeKind) string {
+	if k == runtimev1.RuntimeKind_RUNTIME_KIND_EDGE {
+		return "edge"
+	}
+	return "server"
 }
 
 // Count returns the number of currently registered runtimes.

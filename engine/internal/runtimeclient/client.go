@@ -1,6 +1,7 @@
 // Package runtimeclient implements the runtime side of the registration
-// protocol (ARC-210, ADR-007): the runtime dials the control plane and
-// keeps itself registered for as long as the process runs.
+// protocol (ARC-210, ADR-007): the runtime dials the control plane, keeps
+// itself registered for as long as the process runs, and applies deploy
+// commands pushed down the DeployStream (Increment 3 deploy orchestration).
 package runtimeclient
 
 import (
@@ -16,11 +17,16 @@ import (
 )
 
 const heartbeatInterval = 10 * time.Second
+const deployStreamRetryDelay = 2 * time.Second
+
+// DeployHandler applies one pushed flow deployment.
+type DeployHandler func(ctx context.Context, flowID string, version int64, flowJSON string)
 
 // Run dials addr and keeps the runtime registered until ctx is cancelled.
 // onRegistered is invoked (with the current registration state) every time
-// registration succeeds or is lost, so callers can drive a health endpoint.
-func Run(ctx context.Context, addr, runtimeID, version string, onRegistered func(bool)) error {
+// registration succeeds or is lost, so callers can drive a health endpoint;
+// onDeploy is invoked for every DeployCommand received while registered.
+func Run(ctx context.Context, addr, runtimeID, version string, onRegistered func(bool), onDeploy DeployHandler) error {
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return err
@@ -50,10 +56,14 @@ func Run(ctx context.Context, addr, runtimeID, version string, onRegistered func
 		onRegistered(true)
 		slog.Info("runtime registered", "runtime_id", runtimeID)
 
+		deployCtx, cancelDeploy := context.WithCancel(ctx)
+		go deployStreamLoop(deployCtx, client, runtimeID, sessionToken, onDeploy)
+
 		if err := heartbeatLoop(ctx, client, runtimeID, sessionToken); err != nil {
 			onRegistered(false)
 			slog.Warn("heartbeat loop ended, will re-register", "error", err)
 		}
+		cancelDeploy()
 	}
 }
 
@@ -85,5 +95,49 @@ func heartbeatLoop(ctx context.Context, client runtimev1.RuntimeRegistryServiceC
 				return err
 			}
 		}
+	}
+}
+
+// deployStreamLoop keeps a DeployStream open, reconnecting on failure,
+// until ctx is cancelled (which happens when the heartbeat loop needs to
+// re-register).
+func deployStreamLoop(ctx context.Context, client runtimev1.RuntimeRegistryServiceClient, runtimeID, sessionToken string, onDeploy DeployHandler) {
+	for ctx.Err() == nil {
+		stream, err := client.DeployStream(ctx, &runtimev1.DeployStreamRequest{RuntimeId: runtimeID, SessionToken: sessionToken})
+		if err != nil {
+			slog.Warn("opening deploy stream failed, retrying", "error", err)
+			if !sleepOrDone(ctx, deployStreamRetryDelay) {
+				return
+			}
+			continue
+		}
+
+		for {
+			cmd, err := stream.Recv()
+			if err != nil {
+				if ctx.Err() == nil {
+					slog.Warn("deploy stream ended, reconnecting", "error", err)
+				}
+				break
+			}
+			if onDeploy != nil {
+				onDeploy(ctx, cmd.GetFlowId(), cmd.GetVersion(), cmd.GetFlowJson())
+			}
+		}
+
+		if !sleepOrDone(ctx, deployStreamRetryDelay) {
+			return
+		}
+	}
+}
+
+// sleepOrDone waits for d or ctx cancellation, returning false in the
+// latter case so callers can stop looping.
+func sleepOrDone(ctx context.Context, d time.Duration) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case <-time.After(d):
+		return true
 	}
 }
