@@ -118,7 +118,7 @@ func (l *Log) List(ctx context.Context, projectID string) ([]*Entry, error) {
 	}
 	defer func() { _ = rows.Close() }()
 
-	var entries []*Entry
+	entries := make([]*Entry, 0)
 	for rows.Next() {
 		e, err := scanEntry(rows)
 		if err != nil {

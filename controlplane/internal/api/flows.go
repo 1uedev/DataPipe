@@ -64,7 +64,7 @@ func (s *Store) ListFlows(ctx context.Context, projectID string) ([]*Flow, error
 	}
 	defer func() { _ = rows.Close() }()
 
-	var flows []*Flow
+	flows := make([]*Flow, 0)
 	for rows.Next() {
 		f, err := scanFlow(rows)
 		if err != nil {
@@ -151,7 +151,7 @@ func (s *Store) ListFlowVersions(ctx context.Context, flowID string) ([]*FlowVer
 	}
 	defer func() { _ = rows.Close() }()
 
-	var versions []*FlowVersion
+	versions := make([]*FlowVersion, 0)
 	for rows.Next() {
 		v, err := scanFlowVersion(rows)
 		if err != nil {

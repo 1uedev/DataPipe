@@ -478,6 +478,21 @@ paths:
                 items: { $ref: "#/components/schemas/AuditEntry" }
         "403": { $ref: "#/components/responses/Forbidden" }
 
+  /node-types:
+    get:
+      summary: >
+        List registered node types (Increment 4: the editor's palette,
+        UI-110, and its generated config forms, UI-170, are both driven by
+        this — never hand-built per node type).
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/NodeType" }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -590,3 +605,17 @@ components:
         hash:
           type: string
           description: sha256(prevHash || canonical(entry)) — tamper-evident chain (SEC-140).
+
+    NodeType:
+      type: object
+      properties:
+        type: { type: string, description: "e.g. \"inject\", \"set\", \"debug-log\"" }
+        displayName: { type: string }
+        category: { type: string, enum: [source, processor, sink, control] }
+        description: { type: string }
+        kind: { type: string, enum: [source, processor] }
+        inputs: { type: array, items: { type: string } }
+        outputs: { type: array, items: { type: string } }
+        configSchema:
+          type: object
+          description: A JSON Schema for this type's "config" object; the editor generates its config form from this.

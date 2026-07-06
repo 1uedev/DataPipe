@@ -47,7 +47,7 @@ func (s *Store) ListCredentials(ctx context.Context, projectID string) ([]*Crede
 	}
 	defer func() { _ = rows.Close() }()
 
-	var metas []*CredentialMeta
+	metas := make([]*CredentialMeta, 0)
 	for rows.Next() {
 		var m CredentialMeta
 		var createdAt string

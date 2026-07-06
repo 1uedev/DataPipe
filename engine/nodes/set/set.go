@@ -12,8 +12,35 @@ import (
 	"github.com/1uedev/DataPipe/engine/flow"
 )
 
+const configSchema = `{
+	"type": "object",
+	"properties": {
+		"sets": {
+			"type": "array",
+			"description": "Literal field assignments applied in order.",
+			"items": {
+				"type": "object",
+				"properties": {
+					"path": { "type": "string", "description": "\".\"-separated key path; empty replaces the whole payload." },
+					"value": { "description": "The literal value to assign." }
+				},
+				"required": ["path"]
+			}
+		}
+	},
+	"required": ["sets"]
+}`
+
 func init() {
-	flow.Register("set", flow.NodeTypeInfo{Kind: flow.KindProcessor, Inputs: []string{"in"}, Outputs: []string{"out"}}, New)
+	flow.Register("set", flow.NodeTypeInfo{
+		Kind:         flow.KindProcessor,
+		Inputs:       []string{"in"},
+		Outputs:      []string{"out"},
+		DisplayName:  "Set",
+		Category:     flow.CategoryProcessor,
+		Description:  "Declarative field operations without code: set literal values at a payload path.",
+		ConfigSchema: json.RawMessage(configSchema),
+	}, New)
 }
 
 // SetOp assigns a literal Value at Path, a "."-separated key path into the

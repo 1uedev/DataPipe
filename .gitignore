@@ -4,6 +4,7 @@ bin/
 *.log
 .env
 .DS_Store
+.claude/settings.local.json
 /cli/datapipe
 /datapipe
 /engine/runtime

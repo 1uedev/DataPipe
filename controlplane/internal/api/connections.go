@@ -47,7 +47,7 @@ func (s *Store) ListConnections(ctx context.Context, projectID string) ([]*Conne
 	}
 	defer func() { _ = rows.Close() }()
 
-	var conns []*Connection
+	conns := make([]*Connection, 0)
 	for rows.Next() {
 		c, err := scanConnection(rows)
 		if err != nil {

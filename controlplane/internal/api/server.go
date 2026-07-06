@@ -115,6 +115,7 @@ func (h *Handlers) Routes() http.Handler {
 
 	protected.HandleFunc("GET /runtimes", h.listRuntimes)
 	protected.HandleFunc("GET /audit-log", h.listAuditLog)
+	protected.HandleFunc("GET /node-types", h.listNodeTypes)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /auth/login", h.login)

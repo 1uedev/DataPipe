@@ -56,7 +56,7 @@ func (s *Store) ListProjectsForUser(ctx context.Context, user *auth.User) ([]*Pr
 	}
 	defer func() { _ = rows.Close() }()
 
-	var projects []*Project
+	projects := make([]*Project, 0)
 	for rows.Next() {
 		p, err := scanProject(rows)
 		if err != nil {

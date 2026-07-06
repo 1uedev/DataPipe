@@ -83,7 +83,7 @@ func (s *Store) ListUsers(ctx context.Context) ([]*User, error) {
 	}
 	defer func() { _ = rows.Close() }()
 
-	var users []*User
+	users := make([]*User, 0)
 	for rows.Next() {
 		u, err := scanUser(rows)
 		if err != nil {

@@ -13,8 +13,27 @@ import (
 	"github.com/1uedev/DataPipe/engine/flow"
 )
 
+// configSchema is a JSON Schema (draft 2020-12) for Config, letting the
+// editor generate this node's config form (UI-170) rather than hand-build
+// one.
+const configSchema = `{
+	"type": "object",
+	"properties": {
+		"payload": { "description": "The datagram payload to emit (any JSON value)." },
+		"initialDelayMs": { "type": "integer", "minimum": 0, "default": 0, "description": "Delay before the first emit, in milliseconds." },
+		"repeatMs": { "type": "integer", "minimum": 0, "default": 0, "description": "Re-fire on this interval; 0 fires once and stops." }
+	}
+}`
+
 func init() {
-	flow.Register("inject", flow.NodeTypeInfo{Kind: flow.KindSource, Outputs: []string{"out"}}, New)
+	flow.Register("inject", flow.NodeTypeInfo{
+		Kind:         flow.KindSource,
+		Outputs:      []string{"out"},
+		DisplayName:  "Inject",
+		Category:     flow.CategorySource,
+		Description:  "Emits a configured datagram once, and optionally repeats on an interval.",
+		ConfigSchema: json.RawMessage(configSchema),
+	}, New)
 }
 
 // Config is the inject node's "config" object (Flow-File-Format.md §2).

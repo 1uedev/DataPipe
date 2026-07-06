@@ -11,7 +11,7 @@ build:
 
 test:
 	@for m in $(GO_MODULES); do (cd $$m && go test ./...) || exit 1; done
-	cd ui && pnpm run build
+	cd ui && pnpm run test && pnpm run build
 
 itest:
 	cd tests && go test -tags itest ./...

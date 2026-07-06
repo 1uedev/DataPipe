@@ -13,8 +13,22 @@ import (
 	"github.com/1uedev/DataPipe/engine/flow"
 )
 
+const configSchema = `{
+	"type": "object",
+	"properties": {
+		"label": { "type": "string", "description": "Identifies this debug node's output among several in one flow." }
+	}
+}`
+
 func init() {
-	flow.Register("debug-log", flow.NodeTypeInfo{Kind: flow.KindProcessor, Inputs: []string{"in"}}, New)
+	flow.Register("debug-log", flow.NodeTypeInfo{
+		Kind:         flow.KindProcessor,
+		Inputs:       []string{"in"},
+		DisplayName:  "Debug Log",
+		Category:     flow.CategorySink,
+		Description:  "Logs the datagrams that pass through it (structured log output).",
+		ConfigSchema: json.RawMessage(configSchema),
+	}, New)
 }
 
 // Config is the "debug-log" node's "config" object.
