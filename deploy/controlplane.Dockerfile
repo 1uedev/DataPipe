@@ -8,6 +8,7 @@ COPY engine ./engine
 COPY controlplane ./controlplane
 COPY cli ./cli
 COPY sdk ./sdk
+COPY tests ./tests
 ENV CGO_ENABLED=0
 RUN cd controlplane && go build -o /out/controlplane ./cmd/controlplane
 
