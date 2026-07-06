@@ -2,6 +2,21 @@
 
 Reverse chronological. Every finished step gets one entry: date, what was done, requirement IDs touched, commit hash(es).
 
+## 2026-07-06 — Increment 4: editor MVP
+
+* **Backend**: `engine/flow.NodeTypeInfo` gains display metadata + a JSON Schema per node type; `inject`/`set`/`debug-log` register real schemas; new `GET /node-types` (OpenAPI updated) so the editor's palette and config forms are genuinely schema-driven.
+* **`ui/`**: a full React app — React Flow canvas, Zustand, Tailwind v4, hand-rolled i18n (en+de, UI-310), class-based light/dark theme (UI-300), Vitest + Testing Library.
+* **Auth/projects/flows**: login + session guard, project list/create, per-project flow list/create.
+* **`SchemaForm`** (`ui/src/components/SchemaForm.tsx`): a generic JSON-Schema form renderer (object/array/string/number/boolean/untyped-with-literal↔expression-toggle) — never hand-built per node type.
+* **Canvas + palette** (UI-100/110/120/130): infinite canvas with pan/zoom/grid-snap/minimap toggles; categorized searchable palette with favorites/recently-used; category-colored custom node view; drag-to-instantiate; wire reconnection (detach/reattach).
+* **Editor store** (`ui/src/store/editor.ts`): undo/redo (100-step cap), copy/paste, duplicate, delete-with-wire-healing, per-flow/per-node disable (UI-210), keyboard shortcuts (UI-160).
+* **`ConfigPanel`**: right-hand (not modal) panel, Config/Description tabs, inline required-field errors (UI-170).
+* **Deploy** (UI-200): PATCH + POST /deploy from the editor, with 409 (no runtime) / 400 (invalid flow) surfaced inline.
+* Per Development-Plan's "subflow-less editing," UI-140 is out of scope this increment; UI-180/220/230/320/330 and several live-data-dependent niceties are deferred (see TODO.md).
+* **Bug found and fixed while manually verifying**: Go's `json.Marshal` renders a nil slice as `null`; combined with the frontend's "not loaded yet" state also being `null`, an empty (but successfully loaded) list looked identical to "still loading" forever. Fixed every list handler to return `[]`, added `TestEmptyListsAreEmptyArraysNotNull`, and normalized defensively on the frontend too.
+* **Verified**: full Vitest suite (19 tests: SchemaForm, editor store, flow↔canvas conversion, i18n) and the full Go suite pass. Manually exercised the golden path in a real browser against a live SQLite-backed control plane + runtime: logged in, created a project and flow, edited node config via the generated form, toggled theme/language, saved, and deployed — runtime logs confirmed it genuinely executed the resulting inject→set→debug-log pipeline. Drawing a *new* wire via simulated pointer drag hit a headless-browser tool limitation (not a demonstrated app defect); loading/saving/deploying pre-wired flows was verified live. `(b9e7ce9)`
+* Human follow-up still open: Development-Plan's "usability check with one target-persona user" needs an actual person, not an agent.
+
 ## 2026-07-06 — Increment 3: control plane core + REST API
 
 * **OpenAPI contract** written first: `docs/api/openapi.yaml` — auth, users, projects, flows CRUD + deploy + immutable version history + rollback, connections, write-only credentials, runtimes, audit log.

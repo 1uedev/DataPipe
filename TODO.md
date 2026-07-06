@@ -4,11 +4,10 @@ Working queue for DataPipe. Top item is always next. Detail and acceptance crite
 
 ## Now
 
-- [ ] **Increment 4 — Editor MVP** (canvas, palette, schema-generated config panels, deploy)
+- [ ] **Increment 5 — Live debugging** (inspector, debug sidebar, wire animation, data pinning)
 
 ## Next (in order, from docs/Development-Plan.md)
 
-- [ ] Increment 5 — Live debugging (inspector, debug sidebar, wire animation, data pinning)
 - [ ] Increment 6 — First real connectors (MQTT, HTTP/REST, schedule, files, Postgres, bus topics)
 - [ ] Increment 7 — Processor library P1 (script sandbox, window/aggregate, switch, expressions)
 - [ ] Increment 8 — Triggered workflows (execution history, error flows, DLQ, re-run)
@@ -30,4 +29,7 @@ Working queue for DataPipe. Top item is always next. Detail and acceptance crite
 - [ ] API-110 (WebSocket/live channel for debug/deploy-status/runtime-health) not implemented — lands with live debugging (Increment 5)
 - [ ] API-120 versioning/deprecation policy and scoped API keys (as opposed to session tokens) not implemented
 - [ ] VCS-120 (git integration) and VCS-150 (deployment pipeline promotion with approval gates) are P2, deferred
-- [ ] Docker Hub pulls hung repeatedly in this dev environment (proxy-related) while trying to re-verify `docker compose build` after this increment's Dockerfile-adjacent changes (none were needed) — verified equivalently by running the compiled `controlplane`/`runtime` binaries directly against SQLite instead; re-run the actual compose smoke test once the network/proxy issue clears
+- [ ] Increment 4 (editor) scope explicitly excluded per Development-Plan's "subflow-less editing": UI-140 (subflows). Also not implemented (not listed in the Increment 4 bullet, deferred to their own later work): UI-180 auto-layout/printable docs (P2), UI-220 deploy-target/runtime-group selection (Increment 9 fleet work), UI-230 concurrent-editing presence (P2), UI-320 accessibility audit (P2), UI-330 onboarding tutorial + template gallery, UI-150 visual groups/sticky notes, UI-130 quick-insert-on-wire and live throughput labels, UI-120 live datagrams/sec + last-value indicators (all need DBG-170 live data, Increment 5)
+- [ ] UI-200's "scope choice: full / modified flows only / modified nodes only" isn't a UI toggle — the editor always deploys one flow at a time (matching the REST API's per-flow deploy endpoint); modified-nodes-only behavior already happens automatically server-side via ENG-140 hot deploy regardless of what the UI offers
+- [ ] Development-Plan Increment 4's "usability check with one target-persona user" is a human deliverable — not something an agent can perform; golden path (build + deploy inject→set→debug-log in the browser) was verified thoroughly via manual browser testing instead, but the actual usability test with a real target-persona user is still outstanding
+- [ ] Automated browser verification of drawing a NEW wire by dragging (React Flow's pointer-capture-based connection gesture) didn't work via synthetic PointerEvents in headless testing — a testing-tool limitation, not a demonstrated app defect; the underlying `onConnect`/`reconnectEdge` store logic is unit-tested, and loading/saving/deploying a flow with pre-existing wires was verified live end to end. Worth a follow-up manual check in a real (non-headless) browser
