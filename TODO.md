@@ -4,20 +4,23 @@ Working queue for DataPipe. Top item is always next. Detail and acceptance crite
 
 ## Now
 
-- [ ] **Increment 6 — First real connectors** (MQTT, HTTP/REST, schedule, files, Postgres, bus topics)
+- [ ] **Increment 7 — Processor library P1** (script sandbox, window/aggregate, switch, expressions)
 
 ## Next (in order, from docs/Development-Plan.md)
 
-- [ ] Increment 7 — Processor library P1 (script sandbox, window/aggregate, switch, expressions)
 - [ ] Increment 8 — Triggered workflows (execution history, error flows, DLQ, re-run)
 - [ ] Increment 9 — Edge runtime + fleet (enrollment, store-and-forward, runtime groups)
 - [ ] Increment 10 — Remaining P1 connectors + hardening (OPC-UA, Modbus, Kafka, soak test)
-- [ ] Increment 11 — SECS/GEM track (HSMS spike → codec → GEM host; parallel from Inc. 6)
+- [ ] Increment 11 — SECS/GEM track (HSMS spike → codec → GEM host; parallel from Inc. 6 onward)
 
 ## Backlog / unscheduled
 
 - [ ] **Standing item**: update `docs/User-Guide.md` and `docs/Admin-Guide.md` at the end of every increment (they document the state after Increment 4; NFR-310/320 require them complete and offline-available by 1.0)
 
+- [ ] MQTT real-broker integration test (`tests/e2e/mqtt_itest_test.go`) is written and correct but has never actually run in this development environment: `docker pull eclipse-mosquitto:2` hangs/fails due to a local Docker Hub connectivity issue (confirmed via a 25s alarm-gated pull returning exit 144). The itest infrastructure itself is proven correct by the sibling SQL itest, which runs a real `postgres:16-alpine` container successfully (that image was already cached locally). Run the MQTT itest in an environment with working Docker Hub access before relying on it in CI.
+- [ ] Increment 6's Development-Plan "done when" line calls for a demo flow running "24 h unattended" — `examples/mqtt-sensor-to-postgres.flow.json` exists and is schema-valid (validated via a real control-plane `POST .../flows` call) but the actual 24-hour unattended soak run against live MQTT/Postgres backends is an operational deliverable that was not performed in this environment (needs a real broker/database plus a runtime left running — a good candidate for a scheduled/background task once Docker Hub access or external MQTT/Postgres endpoints are available)
+- [ ] CON-140 "test connection" only implements real checks for `mqtt` and `postgres` (the two connector types with a concrete point-to-point endpoint worth probing in isolation); every other connection type reports "no live test available for this connection type" rather than failing — revisit as new connector families with a natural single-endpoint check land (e.g. OPC-UA in Increment 10)
+- [ ] The new project-page Connections section (`ui/src/pages/ProjectDetail.tsx`) is a minimal first cut: create/list/delete/test only, no edit-in-place, no credential-attach UI (credentials still only manageable via REST), and the "config" field is a raw JSON textarea rather than a schema-driven form — revisit once node config schemas grow a `connectionType` concept the UI can key off of for a nicer picker
 - [ ] Equipment simulator selection for SECS/GEM testing (Increment 11 prerequisite)
 - [ ] Usability test participants for NFR-300 (first-flow-in-15-minutes criterion)
 - [ ] Runtime↔control-plane gRPC channel currently dials with insecure credentials (walking-skeleton placeholder) — add TLS per Architecture §2.5/ADR-007 before edge runtimes (Increment 9) connect over untrusted networks
