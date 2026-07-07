@@ -27,6 +27,19 @@ func withDebugContext(ctx context.Context, ring *ringBuffer, limiter *rateLimite
 	return context.WithValue(ctx, debugCtxKey{}, debugCtx{ring: ring, limiter: limiter, sink: sink, flowID: flowID, nodeID: nodeID})
 }
 
+// CurrentIDs returns the flow/node id a node is running under, for node
+// types that need to key their own state (e.g. PROC-410 ctxstore scoping,
+// engine/expr's flow/global bindings). Empty strings if ctx carries no
+// debug context (e.g. a node unit test calling Process directly without a
+// live Deployment).
+func CurrentIDs(ctx context.Context) (flowID, nodeID string) {
+	dc, ok := ctx.Value(debugCtxKey{}).(debugCtx)
+	if !ok {
+		return "", ""
+	}
+	return dc.flowID, dc.nodeID
+}
+
 // SidebarEvent pushes a named debug/sidebar event (DBG-110's "explicit node
 // printing selected expressions to a global debug sidebar"). source is the
 // datagram the value was derived from (its id/correlation/quality are

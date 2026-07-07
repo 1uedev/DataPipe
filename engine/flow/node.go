@@ -30,6 +30,25 @@ type Processor interface {
 	Process(ctx context.Context, in datagram.Datagram) ([]PortDatagram, error)
 }
 
+// DynamicOutputs is implemented by node instances whose output ports depend
+// on their own config rather than being fixed at type-registration time
+// (e.g. switch/route's user-defined rule ports, Flow-File-Format.md's
+// documented "switch: dynamic out0..outN + default"). When an instance
+// implements this, Deployment.startNode and Validate use OutputPorts()
+// instead of the type's static NodeTypeInfo.Outputs.
+type DynamicOutputs interface {
+	OutputPorts() []string
+}
+
+// MultiInputProcessor is implemented by node instances that consume more
+// than one named input port, each fed from its own wire and delivered with
+// its port name attached (e.g. merge/join's two branches). NodeTypeInfo.
+// Inputs must list every port the type accepts. A plain Processor is still
+// used for the (far more common) single-input case.
+type MultiInputProcessor interface {
+	ProcessPort(ctx context.Context, port string, in datagram.Datagram) ([]PortDatagram, error)
+}
+
 // NodeError is the ERR-100 error object: "message, code, node, stack,
 // attempt" carried alongside the original datagram in error routing.
 type NodeError struct {

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/1uedev/DataPipe/engine/bus"
+	"github.com/1uedev/DataPipe/engine/ctxstore"
 	"github.com/1uedev/DataPipe/engine/datagram"
 )
 
@@ -72,6 +73,12 @@ type Deployment struct {
 	// CON-110); defaults to NoopConnectionResolver so nodes that need one
 	// fail with a clear error rather than a nil-pointer panic.
 	connResolver ConnectionResolver
+
+	// ctxStore backs PROC-410 (node/flow/global state) and the "flow"/
+	// "global" bindings in engine/expr; defaults to an in-process
+	// MemoryStore so a runtime with no durable backend configured still
+	// works (state just doesn't survive a runtime restart).
+	ctxStore ctxstore.Store
 }
 
 // NewDeployment creates an empty deployment ready for Deploy. A nil logger uses
@@ -91,9 +98,22 @@ func NewDeployment(logger *slog.Logger) *Deployment {
 		debugSink:     NoopDebugSink,
 		metricsStop:   make(chan struct{}),
 		connResolver:  NoopConnectionResolver,
+		ctxStore:      ctxstore.NewMemoryStore(),
 	}
 	go d.pollWireMetrics()
 	return d
+}
+
+// SetContextStore attaches the node/flow/global state backend (PROC-410).
+// Safe to call at any time, including while nodes are running; a nil store
+// resets to a fresh in-process MemoryStore.
+func (g *Deployment) SetContextStore(store ctxstore.Store) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if store == nil {
+		store = ctxstore.NewMemoryStore()
+	}
+	g.ctxStore = store
 }
 
 // SetConnectionResolver attaches (or detaches, with nil) the resolver used
@@ -394,7 +414,11 @@ func (g *Deployment) startNode(ctx context.Context, n *Node, info NodeTypeInfo, 
 	}
 
 	outputs := make(map[string]*bus.FanOut)
-	effectiveOutputs := append([]string(nil), info.Outputs...)
+	baseOutputs := info.Outputs
+	if dyn, ok := instance.(DynamicOutputs); ok {
+		baseOutputs = dyn.OutputPorts()
+	}
+	effectiveOutputs := append([]string(nil), baseOutputs...)
 	if n.ErrorPolicy != nil && n.ErrorPolicy.OnError == "errorPort" {
 		effectiveOutputs = append(effectiveOutputs, "error")
 	}
@@ -424,6 +448,7 @@ func (g *Deployment) startNode(ctx context.Context, n *Node, info NodeTypeInfo, 
 	nodeCtx, cancel := context.WithCancel(ctx)
 	nodeCtx = withDebugContext(nodeCtx, ring, limiter, g.debugSink, g.flowID, n.ID)
 	nodeCtx = WithConnection(nodeCtx, g.connResolver, n.Connection)
+	nodeCtx = WithContextStore(nodeCtx, g.ctxStore)
 	metrics := &NodeMetrics{}
 	runner := &nodeRunner{
 		id:          n.ID,
@@ -452,20 +477,36 @@ func (g *Deployment) startNode(ctx context.Context, n *Node, info NodeTypeInfo, 
 			runner.runSource(nodeCtx, src)
 		}()
 	case KindProcessor:
-		proc, ok := instance.(Processor)
-		if !ok {
-			cancel()
-			return fmt.Errorf("node type %q factory did not return a Processor", n.Type)
-		}
 		if len(info.Inputs) == 0 {
 			cancel()
 			return fmt.Errorf("node type %q declares Kind=Processor but no input ports", n.Type)
 		}
-		inbox := g.inboxes[nodePort{n.ID, info.Inputs[0]}]
-		go func() {
-			defer close(done)
-			runner.runProcessor(nodeCtx, proc, inbox)
-		}()
+		if mproc, ok := instance.(MultiInputProcessor); ok {
+			var wg sync.WaitGroup
+			for _, port := range info.Inputs {
+				inbox := g.inboxes[nodePort{n.ID, port}]
+				wg.Add(1)
+				go func(port string, inbox *bus.Wire) {
+					defer wg.Done()
+					runner.runMultiProcessor(nodeCtx, mproc, port, inbox)
+				}(port, inbox)
+			}
+			go func() {
+				defer close(done)
+				wg.Wait()
+			}()
+		} else {
+			proc, ok := instance.(Processor)
+			if !ok {
+				cancel()
+				return fmt.Errorf("node type %q factory did not return a Processor", n.Type)
+			}
+			inbox := g.inboxes[nodePort{n.ID, info.Inputs[0]}]
+			go func() {
+				defer close(done)
+				runner.runProcessor(nodeCtx, proc, inbox)
+			}()
+		}
 	}
 
 	g.nodes[n.ID] = &runningNode{cancel: cancel, done: done, metrics: metrics, fingerprint: fingerprint, startCount: priorStartCount + 1}

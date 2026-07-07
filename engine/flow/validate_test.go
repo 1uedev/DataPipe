@@ -6,6 +6,14 @@ import (
 	"testing"
 )
 
+const testSchemaProcessorSchema = `{
+	"type": "object",
+	"properties": {
+		"count": { "type": "integer", "minimum": 1 }
+	},
+	"required": ["count"]
+}`
+
 func init() {
 	Register("test-source", NodeTypeInfo{Kind: KindSource, Outputs: []string{"out"}}, func(json.RawMessage) (any, error) {
 		return nil, nil
@@ -16,6 +24,14 @@ func init() {
 	Register("test-sink", NodeTypeInfo{Kind: KindProcessor, Inputs: []string{"in"}}, func(json.RawMessage) (any, error) {
 		return nil, nil
 	})
+	// A schema-bearing type, for rule 3 (node-config JSON-Schema
+	// validation) tests — the other test types above deliberately have no
+	// ConfigSchema, to also prove that's treated as unconstrained rather
+	// than an error.
+	Register("test-schema-processor", NodeTypeInfo{
+		Kind: KindProcessor, Inputs: []string{"in"}, Outputs: []string{"out"},
+		ConfigSchema: json.RawMessage(testSchemaProcessorSchema),
+	}, func(json.RawMessage) (any, error) { return nil, nil })
 }
 
 func validFlow() *FlowFile {
@@ -143,6 +159,42 @@ func TestFLOWVALIDATE_MultipleProblemsAllReported(t *testing.T) {
 	}
 	if len(ve.Problems) < 2 {
 		t.Errorf("expected multiple problems reported together, got %v", ve.Problems)
+	}
+}
+
+func TestFLOWVALIDATE_ConfigMatchingSchemaPasses(t *testing.T) {
+	f := &FlowFile{
+		FormatVersion: 1, Kind: KindFlow, ID: "flow_schema_ok", Name: "t", Mode: ModeStreaming,
+		Graph: Graph{Nodes: []Node{{ID: "n1", Type: "test-schema-processor", Config: json.RawMessage(`{"count": 3}`)}}},
+	}
+	if err := Validate(f); err != nil {
+		t.Fatalf("Validate: %v, want nil", err)
+	}
+}
+
+func TestFLOWVALIDATE_ConfigViolatingSchemaIsRejected(t *testing.T) {
+	f := &FlowFile{
+		FormatVersion: 1, Kind: KindFlow, ID: "flow_schema_bad", Name: "t", Mode: ModeStreaming,
+		Graph: Graph{Nodes: []Node{{ID: "n1", Type: "test-schema-processor", Config: json.RawMessage(`{"count": "not-a-number"}`)}}},
+	}
+	assertProblem(t, f, "config does not match schema")
+}
+
+func TestFLOWVALIDATE_MissingRequiredConfigFieldIsRejected(t *testing.T) {
+	f := &FlowFile{
+		FormatVersion: 1, Kind: KindFlow, ID: "flow_schema_missing", Name: "t", Mode: ModeStreaming,
+		Graph: Graph{Nodes: []Node{{ID: "n1", Type: "test-schema-processor", Config: json.RawMessage(`{}`)}}},
+	}
+	assertProblem(t, f, "config does not match schema")
+}
+
+func TestFLOWVALIDATE_TypeWithNoSchemaIsUnconstrained(t *testing.T) {
+	f := &FlowFile{
+		FormatVersion: 1, Kind: KindFlow, ID: "flow_no_schema", Name: "t", Mode: ModeStreaming,
+		Graph: Graph{Nodes: []Node{{ID: "n1", Type: "test-processor", Config: json.RawMessage(`{"anything": true}`)}}},
+	}
+	if err := Validate(f); err != nil {
+		t.Fatalf("Validate: %v, want nil (no schema declared)", err)
 	}
 }
 

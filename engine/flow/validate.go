@@ -1,14 +1,18 @@
-// Validation implements the subset of Flow-File-Format.md §7 that applies
-// once node types exist: id uniqueness, wire endpoint/port/direction
-// checks, registered node types, and the ENG-100 streaming/triggered mode
-// check. Connection-reference and JSON-Schema config validation (§7 rules
-// 2-3) land with the connection registry (Increment 3+) and node-manifest
-// schemas (SDK track).
+// Validation implements Flow-File-Format.md §7: id uniqueness, wire
+// endpoint/port/direction checks, registered node types, the ENG-100
+// streaming/triggered mode check, and rule 3 (node config validates
+// against its type's JSON Schema). Rule 2 (connection-ref resolution) is
+// moot for control-plane-issued deploys, which reference control-plane
+// connection ids already validated to exist there.
 package flow
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/santhosh-tekuri/jsonschema/v5"
 )
 
 // ValidationError collects every problem found so callers can show a
@@ -41,8 +45,9 @@ func Validate(f *FlowFile) error {
 	hasSource := false
 
 	nodeInfo := make(map[string]NodeTypeInfo, len(f.Graph.Nodes))
+	nodeOutputs := make(map[string][]string, len(f.Graph.Nodes))
 	for _, n := range f.Graph.Nodes {
-		info, _, ok := Lookup(n.Type)
+		info, factory, ok := Lookup(n.Type)
 		if !ok {
 			add("node %q: unknown node type %q (is the plugin installed?)", n.ID, n.Type)
 			continue
@@ -51,6 +56,29 @@ func Validate(f *FlowFile) error {
 		if info.Kind == KindSource {
 			hasSource = true
 		}
+
+		// Rule 3: config must validate against the node type's JSON Schema
+		// before even trying to construct it — a clearer error than
+		// whatever Go-level failure an out-of-schema config happens to
+		// produce, and skips the redundant second error below.
+		if err := validateConfigSchema(info.ConfigSchema, n.Config); err != nil {
+			add("node %q: config does not match schema: %v", n.ID, err)
+			nodeOutputs[n.ID] = info.Outputs
+			continue
+		}
+
+		// A node instance's output ports may depend on its own config
+		// (DynamicOutputs, e.g. switch/route's user-defined rule ports —
+		// Flow-File-Format.md §2 "switch: dynamic out0..outN + default"),
+		// so config is validated here too: constructing the instance is
+		// the only way to ask it for its real ports.
+		outputs := info.Outputs
+		if instance, err := factory(n.Config); err != nil {
+			add("node %q: invalid config: %v", n.ID, err)
+		} else if dyn, ok := instance.(DynamicOutputs); ok {
+			outputs = dyn.OutputPorts()
+		}
+		nodeOutputs[n.ID] = outputs
 	}
 
 	for _, w := range f.Graph.Wires {
@@ -62,7 +90,7 @@ func Validate(f *FlowFile) error {
 		wireIDs[w.ID] = true
 
 		validateEndpoint(w.ID, "from", w.From, nodeByID, nodeInfo, add, func(info NodeTypeInfo, port string) bool {
-			return outputPortExists(info, nodeByID[w.From.Node], port)
+			return outputPortExists(nodeOutputs[w.From.Node], nodeByID[w.From.Node], port)
 		})
 		validateEndpoint(w.ID, "to", w.To, nodeByID, nodeInfo, add, func(info NodeTypeInfo, port string) bool {
 			return containsString(info.Inputs, port)
@@ -102,14 +130,41 @@ func validateEndpoint(
 	}
 }
 
-// outputPortExists checks the "to" side against the node type's declared
-// outputs, plus the implicit "error" port (Flow-File-Format §2 "Ports":
-// "every node implicitly has error when errorPolicy.onError == 'errorPort'").
-func outputPortExists(info NodeTypeInfo, n *Node, port string) bool {
-	if containsString(info.Outputs, port) {
+// outputPortExists checks the "from" side against the node instance's
+// actual output ports (static NodeTypeInfo.Outputs, or DynamicOutputs'
+// per-config ports where implemented), plus the implicit "error" port
+// (Flow-File-Format §2 "Ports": "every node implicitly has error when
+// errorPolicy.onError == 'errorPort'").
+func outputPortExists(outputs []string, n *Node, port string) bool {
+	if containsString(outputs, port) {
 		return true
 	}
 	return port == "error" && n != nil && n.ErrorPolicy != nil && n.ErrorPolicy.OnError == "errorPort"
+}
+
+// validateConfigSchema checks config against a node type's declared JSON
+// Schema (draft 2020-12). A type with no schema set (e.g. a test-only
+// registration) is treated as unconstrained, not an error. config defaults
+// to "{}" if empty, since an omitted config object is common for types with
+// no required fields.
+func validateConfigSchema(schemaJSON json.RawMessage, config json.RawMessage) error {
+	if len(schemaJSON) == 0 {
+		return nil
+	}
+	schema, err := jsonschema.CompileString("config.json", string(schemaJSON))
+	if err != nil {
+		return fmt.Errorf("node type's own schema is invalid: %w", err)
+	}
+	if len(config) == 0 {
+		config = json.RawMessage("{}")
+	}
+	dec := json.NewDecoder(bytes.NewReader(config))
+	dec.UseNumber()
+	var doc any
+	if err := dec.Decode(&doc); err != nil {
+		return fmt.Errorf("invalid config JSON: %w", err)
+	}
+	return schema.Validate(doc)
 }
 
 func containsString(haystack []string, needle string) bool {

@@ -112,13 +112,32 @@ func (r *nodeRunner) runProcessor(ctx context.Context, proc Processor, inbox *bu
 			return
 		}
 		r.captureDebug(DirIn, r.inputPort, "", in)
-		r.handle(ctx, proc, in)
+		r.handle(ctx, in, proc.Process)
 	}
 }
 
-// handle runs one datagram through proc, applying ERR-100's error policy on
-// failure. Panics inside Process are recovered (ARC-150).
-func (r *nodeRunner) handle(ctx context.Context, proc Processor, in datagram.Datagram) {
+// runMultiProcessor is runProcessor's counterpart for MultiInputProcessor
+// node instances (e.g. merge/join): one goroutine per named input port,
+// each looping over its own inbox wire and tagging every invocation with
+// which port it arrived on.
+func (r *nodeRunner) runMultiProcessor(ctx context.Context, proc MultiInputProcessor, port string, inbox *bus.Wire) {
+	for {
+		in, err := inbox.Receive(ctx)
+		if err != nil {
+			return
+		}
+		r.captureDebug(DirIn, port, "", in)
+		r.handle(ctx, in, func(ctx context.Context, in datagram.Datagram) ([]PortDatagram, error) {
+			return proc.ProcessPort(ctx, port, in)
+		})
+	}
+}
+
+// handle runs one datagram through invoke (either a Processor's Process or
+// a MultiInputProcessor's ProcessPort bound to its port), applying
+// ERR-100's error policy on failure. Panics inside invoke are recovered
+// (ARC-150).
+func (r *nodeRunner) handle(ctx context.Context, in datagram.Datagram, invoke func(context.Context, datagram.Datagram) ([]PortDatagram, error)) {
 	policy := r.policy()
 	attempt := 1
 	var bo *backoff.Backoff
@@ -131,7 +150,7 @@ func (r *nodeRunner) handle(ctx context.Context, proc Processor, in datagram.Dat
 	}
 
 	for {
-		results, err := invokeWithRecover(ctx, proc, in)
+		results, err := invokeWithRecover(ctx, invoke, in)
 		if err == nil {
 			r.metrics.Processed.Add(1)
 			r.dispatch(ctx, results)
@@ -139,7 +158,7 @@ func (r *nodeRunner) handle(ctx context.Context, proc Processor, in datagram.Dat
 		}
 
 		r.metrics.Errors.Add(1)
-		nodeErr := asNodeError(err, r.id, attempt)
+		nodeErr := AsNodeError(err, r.id, attempt)
 
 		if policy.OnError == "retry" {
 			max := 0
@@ -189,7 +208,7 @@ func (r *nodeRunner) applyTerminalPolicy(ctx context.Context, policy ErrorPolicy
 			r.logger.Error("errorPort policy but no error output wired", "node", r.id, "error", nodeErr)
 			return
 		}
-		errDgm := buildErrorDatagram(in, nodeErr)
+		errDgm := BuildErrorDatagram(in, nodeErr)
 		r.captureDebug(DirOut, "error", "", errDgm)
 		if err := fo.Send(ctx, errDgm); err != nil && ctx.Err() == nil {
 			r.logger.Error("failed to send to error port", "node", r.id, "error", err)
@@ -201,18 +220,22 @@ func (r *nodeRunner) applyTerminalPolicy(ctx context.Context, policy ErrorPolicy
 	}
 }
 
-// invokeWithRecover calls proc.Process, converting any panic into a
-// *NodeError (ARC-150).
-func invokeWithRecover(ctx context.Context, proc Processor, in datagram.Datagram) (results []PortDatagram, err error) {
+// invokeWithRecover calls invoke, converting any panic into a *NodeError
+// (ARC-150).
+func invokeWithRecover(ctx context.Context, invoke func(context.Context, datagram.Datagram) ([]PortDatagram, error), in datagram.Datagram) (results []PortDatagram, err error) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			err = &NodeError{Message: fmt.Sprint(rec), Stack: string(debug.Stack())}
 		}
 	}()
-	return proc.Process(ctx, in)
+	return invoke(ctx, in)
 }
 
-func asNodeError(err error, nodeID string, attempt int) *NodeError {
+// AsNodeError converts err into a *NodeError (tagging Node/Attempt),
+// reusing its fields as-is if it already is one. Exported so node types
+// implementing their own error-scope semantics (e.g. PROC-370's try-catch)
+// can produce the identical ERR-100 shape the built-in errorPort policy uses.
+func AsNodeError(err error, nodeID string, attempt int) *NodeError {
 	var ne *NodeError
 	if errors.As(err, &ne) {
 		ne.Node = nodeID
@@ -222,9 +245,10 @@ func asNodeError(err error, nodeID string, attempt int) *NodeError {
 	return &NodeError{Message: err.Error(), Node: nodeID, Attempt: attempt}
 }
 
-// buildErrorDatagram carries the original datagram plus the ERR-100 error
-// object.
-func buildErrorDatagram(original datagram.Datagram, nodeErr *NodeError) datagram.Datagram {
+// BuildErrorDatagram carries the original datagram plus the ERR-100 error
+// object — the exact shape errorPort routes, exported for reuse (e.g.
+// PROC-370's try-catch node).
+func BuildErrorDatagram(original datagram.Datagram, nodeErr *NodeError) datagram.Datagram {
 	d := datagram.NewCaused(original, datagram.Source{NodeID: nodeErr.Node}, datagram.Payload{
 		Value: map[string]any{
 			"original": original,

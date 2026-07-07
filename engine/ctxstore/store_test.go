@@ -6,6 +6,33 @@ import (
 	"testing"
 )
 
+func TestPROC410_IncrementCreatesAndAccumulates(t *testing.T) {
+	ctx := context.Background()
+	s := NewMemoryStore()
+	key := Key{Scope: ScopeGlobal, Name: "counter"}
+
+	v, err := s.Increment(ctx, key, 5)
+	if err != nil || v != 5 {
+		t.Fatalf("Increment(first) = %v, %v; want 5, nil", v, err)
+	}
+	v, err = s.Increment(ctx, key, -2)
+	if err != nil || v != 3 {
+		t.Fatalf("Increment(second) = %v, %v; want 3, nil", v, err)
+	}
+}
+
+func TestPROC410_IncrementRejectsNonNumericExistingValue(t *testing.T) {
+	ctx := context.Background()
+	s := NewMemoryStore()
+	key := Key{Scope: ScopeGlobal, Name: "not-a-number"}
+	if err := s.Set(ctx, key, "hello"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if _, err := s.Increment(ctx, key, 1); err == nil {
+		t.Fatal("expected an error incrementing a non-numeric value")
+	}
+}
+
 func TestENG120_ScopedGetSetDelete(t *testing.T) {
 	ctx := context.Background()
 	s := NewMemoryStore()

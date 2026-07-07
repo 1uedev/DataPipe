@@ -34,5 +34,5 @@ func ExecuteNode(ctx context.Context, nodeType string, config json.RawMessage, i
 	if !ok {
 		return nil, fmt.Errorf("flow: node type %q factory did not return a Processor", nodeType)
 	}
-	return invokeWithRecover(ctx, proc, input)
+	return invokeWithRecover(ctx, proc.Process, input)
 }

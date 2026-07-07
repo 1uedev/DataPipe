@@ -68,6 +68,10 @@ type Store interface {
 	// Keys lists the names stored under the given scope (and FlowID/NodeID
 	// where applicable), for state inspection in the editor/API.
 	Keys(ctx context.Context, scope Scope, flowID, nodeID string) ([]string, error)
+	// Increment atomically adds delta to the numeric value at key (treating
+	// an absent key as 0) and returns the new value — PROC-410's "atomic
+	// update operations".
+	Increment(ctx context.Context, key Key, delta float64) (float64, error)
 }
 
 // MemoryStore is an in-process, non-durable Store implementation.
@@ -111,6 +115,38 @@ func (s *MemoryStore) Delete(_ context.Context, key Key) error {
 	}
 	delete(s.values, key)
 	return nil
+}
+
+func (s *MemoryStore) Increment(_ context.Context, key Key, delta float64) (float64, error) {
+	if err := key.validate(); err != nil {
+		return 0, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var current float64
+	if v, ok := s.values[key]; ok {
+		f, ok := toFloat(v)
+		if !ok {
+			return 0, fmt.Errorf("ctxstore: value at key %+v is not numeric (%T)", key, v)
+		}
+		current = f
+	}
+	next := current + delta
+	s.values[key] = next
+	return next, nil
+}
+
+func toFloat(v any) (float64, bool) {
+	switch t := v.(type) {
+	case float64:
+		return t, true
+	case int:
+		return float64(t), true
+	case int64:
+		return float64(t), true
+	default:
+		return 0, false
+	}
 }
 
 func (s *MemoryStore) Keys(_ context.Context, scope Scope, flowID, nodeID string) ([]string, error) {
