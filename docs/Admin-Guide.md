@@ -1,6 +1,6 @@
 # DataPipe — Administrator Guide
 
-**Covers:** development state after Increment 4 · **Audience:** operators of a DataPipe installation
+**Covers:** development state after Increment 6 · **Audience:** operators of a DataPipe installation
 **Components:** control plane (REST API + gRPC registry), runtime (flow engine), PostgreSQL or SQLite, editor UI.
 
 ## 1. Installation
@@ -62,6 +62,10 @@ Authentication is local accounts (bcrypt-hashed passwords) with opaque bearer se
 
 Connection definitions and credentials are project-scoped (`/projects/{id}/connections`, `/projects/{id}/credentials`). Credential values are envelope-encrypted: each value gets its own random DEK, wrapped by the versioned master KEK (`DATAPIPE_MASTER_KEY`). Values are **write-only by construction** — no API response ever contains a decrypted value, and exports never include secrets. KEK rotation (re-wrapping DEKs under a new key version) is prepared in the data model but the admin operation is not implemented yet.
 
+**How runtimes get credentials** (since Increment 6): deploy pushes never contain credential values. A connector node requests its decrypted connection config on demand over the runtime-initiated `ResolveConnection` gRPC call, and re-resolves on every reconnect — so rotating a credential in the control plane takes effect on the next reconnect without redeploying flows.
+
+**Connection testing**: `POST /connections/{id}/test` (also a button in the project UI) performs a real bounded connect attempt from the control plane. Implemented for `mqtt` and `postgres`; other types report "no live test available".
+
 ## 5. Audit log
 
 Every security-relevant action (logins, user/permission changes, credential writes, flow deploys, …) is appended to a hash-chained audit log: each entry carries a hash over its content plus the previous entry's hash, so any historical edit or deletion is detectable. Read it via `GET /api/v1/audit-log` (System Admin). Chain verification runs via the built-in `Verify` routine; a CLI wrapper and SIEM export are planned.
@@ -77,7 +81,11 @@ Every security-relevant action (logins, user/permission changes, credential writ
 
 Back up three things: the database (`pg_dump` for PostgreSQL, or a copy of the SQLite file taken while the control plane is stopped), the `DATAPIPE_MASTER_KEY` (separately, in a secret manager — a DB backup without the key has unrecoverable credentials), and your `deploy/` configuration. Restore = restore DB, set the same master key, start the control plane (migrations verify the schema), restart runtimes (they re-register and receive their flows on the next deploy).
 
-## 8. Monitoring and troubleshooting
+## 8. Live debug channel
+
+Since Increment 5 the editor's live inspection runs over a WebSocket at `/ws/debug` on the control plane (protocol documented in `docs/api/debug-websocket.md`; the session token travels as a query parameter because the WS handshake cannot carry the auth header). Access is gated at **Operator or higher** per project — Viewers cannot see payloads. The runtime only captures and forwards debug data for flows someone is actually watching, the live stream is rate-limited (default 20 events/s per node) and payloads over 4 KiB are truncated before relay, so debugging a high-volume flow does not overload runtime, control plane, or browser. Wire counters remain exact regardless of sampling.
+
+## 9. Monitoring and troubleshooting
 
 | Symptom | Check |
 |---|---|
@@ -85,10 +93,12 @@ Back up three things: the database (`pg_dump` for PostgreSQL, or a copy of the S
 | Login fails after fresh install | Was `DATAPIPE_ADMIN_PASSWORD` set at first startup? Without it no bootstrap admin exists |
 | Control plane won't start | `DATAPIPE_MASTER_KEY` missing/not valid base64-32-bytes; or `DATABASE_URL` unreachable |
 | Deploy rejected (HTTP 400) | Response body lists validation errors (broken wires, unknown node types, mode violations) |
-| Where is flow output? | `docker compose -f deploy/docker-compose.yml logs -f runtime` — Debug Log nodes write there until in-editor live inspection (Increment 5) lands |
+| Where is flow output? | In the editor: node Inspector (Inspect tab) and the debug sidebar show live data (Operator+). Runtime console logging is an opt-in setting on the Debug Log node; `docker compose logs -f runtime` still shows engine logs |
+| Live inspection shows nothing | Is the user at least Operator in the project? Does `/ws/debug` reach the control plane (reverse proxies must allow WebSocket upgrade)? |
+| Connection test fails | The response contains the real dial error (e.g. `connection refused`); verify host/port from the control plane's network perspective — the test runs there, not on the runtime |
 
 Health endpoints: control plane `:8080/healthz`, runtime `:8081/healthz` (compose maps it to 8082). Prometheus metrics (OBS-100) are specified but not implemented yet.
 
-## 9. Upgrades
+## 10. Upgrades
 
 Pull the new version, rebuild (`docker compose build` or `make build`), restart control plane first (runs migrations), then runtimes. Flow definitions and versions are forward-compatible per the flow file format's `formatVersion` rules. Take a backup before upgrading.

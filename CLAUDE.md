@@ -30,6 +30,7 @@ Remote: `https://github.com/1uedev/DataPipe.git` (origin, branch `main`).
 * Never commit secrets, credentials, or `.env` files (see `.gitignore`); flow exports must be secret-free by construction (SEC-120).
 * If a push fails for lack of credentials in the current environment, finish the commit locally and tell Holger to push — never leave work uncommitted.
 * **After every completed step**: move the finished item from `TODO.md` to `DONE.md` (date, summary, requirement IDs, commit hash) and add any newly discovered follow-up work to `TODO.md`. These two files are part of the same commit as the work itself.
+* **After every completed increment**: also update `docs/User-Guide.md`, `docs/Admin-Guide.md` (they must always describe the current state — NFR-310/320), the "Current state" section of this file, and `README.md` if user-visible behavior changed. This is part of the increment, not optional follow-up.
 
 ## Stack and layout (from Architecture.md)
 
@@ -56,4 +57,4 @@ make lint         # go + ts linters
 
 ## Current state
 
-Increments 0–5 done: monorepo skeleton + CI (0); datagram/bus/ctxstore (1); flow model, node runner, hot deploy, inject/set/debug-log nodes, CLI (2); control plane (auth/RBAC, credential vault, audit log, REST API, deploy orchestration) (3); React Flow editor (canvas, palette, schema-driven config, undo/redo, deploy) (4); live debugging — DebugChannel gRPC stream, per-node ring buffers + rate-limited live forwarding, debug sidebar node, WebSocket relay, node/wire inspector, wire pulse + counters, design-time run-once + data pinning (5). Next step: Increment 6 of `docs/Development-Plan.md` (first real connectors: MQTT, HTTP/REST, schedule, files, Postgres, bus topics). Update this section whenever an increment completes.
+Increments 0–6 done: monorepo skeleton + CI (0); datagram/bus/ctxstore (1); flow model, node runner, hot deploy, inject/set/debug-log nodes, CLI (2); control plane (auth/RBAC, credential vault, audit log, REST API, deploy orchestration) (3); React Flow editor (canvas, palette, schema-driven config, undo/redo, deploy) (4); live debugging — DebugChannel gRPC stream, per-node ring buffers + rate-limited live forwarding, debug sidebar node, WebSocket relay, node/wire inspector, wire pulse + counters, design-time run-once + data pinning (5); first real connectors — MQTT in/out, HTTP in/response/request, schedule/cron, file watcher + CSV/JSON readers, Postgres source/sink, bus in/out topics, on-demand `ResolveConnection` credential delivery, connection test, source sample preview (6). Next step: Increment 7 of `docs/Development-Plan.md` (processor library P1: script sandbox, window/aggregate, switch, expressions). Update this section whenever an increment completes.
