@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import { ReactFlowProvider } from '@xyflow/react'
 import * as api from '../api/resources'
 import { ApiError } from '../api/client'
-import type { Flow, NodeType } from '../api/types'
+import type { Flow, NodeType, RuntimeGroup } from '../api/types'
 import { useEditorStore } from '../store/editor'
 import { Palette } from '../components/Palette'
 import { FlowCanvas } from '../components/FlowCanvas'
@@ -18,6 +18,8 @@ export default function FlowEditor() {
   const { flowId, projectId } = useParams<{ flowId: string; projectId: string }>()
   const [flow, setFlow] = useState<Flow | null>(null)
   const [nodeTypes, setNodeTypes] = useState<NodeType[]>([])
+  const [runtimeGroups, setRuntimeGroups] = useState<RuntimeGroup[]>([])
+  const [runtimeGroup, setRuntimeGroup] = useState('')
   const [saving, setSaving] = useState(false)
   const [deployState, setDeployState] = useState<'idle' | 'deploying' | 'success' | 'error'>('idle')
   const [deployMessage, setDeployMessage] = useState('')
@@ -48,10 +50,12 @@ export default function FlowEditor() {
     if (!flowId) return
     void api.getFlow(flowId).then((f) => {
       setFlow(f)
+      setRuntimeGroup(f.content.runtimeAssignment?.group ?? '')
       const { nodes, edges } = contentToCanvas(f.content)
       load(nodes, edges, f.content.disabled ?? false)
     })
     void api.listNodeTypes().then(setNodeTypes)
+    void api.listRuntimeGroups().then(setRuntimeGroups)
   }, [flowId, load])
 
   // DBG-100/110/120/170: one live-debugging subscription per open flow.
@@ -69,8 +73,12 @@ export default function FlowEditor() {
 
   const buildContent = useCallback(() => {
     if (!flow) return null
-    return canvasToContent({ ...flow.content, disabled: flowDisabled }, nodes, edges)
-  }, [flow, nodes, edges, flowDisabled])
+    return canvasToContent(
+      { ...flow.content, disabled: flowDisabled, runtimeAssignment: runtimeGroup ? { group: runtimeGroup } : null },
+      nodes,
+      edges,
+    )
+  }, [flow, nodes, edges, flowDisabled, runtimeGroup])
 
   async function onSave() {
     if (!flow) return
@@ -151,6 +159,20 @@ export default function FlowEditor() {
           <span className="text-xs text-(--color-text-muted)">
             {flow.deployedVersion != null ? t('flows.deployedVersion', { version: flow.deployedVersion }) : t('flows.notDeployed')}
           </span>
+          <select
+            aria-label={t('editor.deployTarget')}
+            title={t('editor.deployTarget')}
+            value={runtimeGroup}
+            onChange={(e) => setRuntimeGroup(e.target.value)}
+            className="rounded border border-(--color-border) bg-transparent px-1.5 py-1 text-xs"
+          >
+            <option value="">{t('editor.deployTarget.default')}</option>
+            {runtimeGroups.map((g) => (
+              <option key={g.name} value={g.name}>
+                {g.name}
+              </option>
+            ))}
+          </select>
         </div>
         <div className="flex items-center gap-1.5">
           {flow.content.mode === 'triggered' && (

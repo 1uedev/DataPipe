@@ -75,12 +75,20 @@ func (RuntimeKind) EnumDescriptor() ([]byte, []int) {
 }
 
 type RegisterRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RuntimeId     string                 `protobuf:"bytes,1,opt,name=runtime_id,json=runtimeId,proto3" json:"runtime_id,omitempty"`
-	Kind          RuntimeKind            `protobuf:"varint,2,opt,name=kind,proto3,enum=datapipe.runtime.v1.RuntimeKind" json:"kind,omitempty"`
-	Version       string                 `protobuf:"bytes,3,opt,name=version,proto3" json:"version,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	RuntimeId string                 `protobuf:"bytes,1,opt,name=runtime_id,json=runtimeId,proto3" json:"runtime_id,omitempty"`
+	Kind      RuntimeKind            `protobuf:"varint,2,opt,name=kind,proto3,enum=datapipe.runtime.v1.RuntimeKind" json:"kind,omitempty"`
+	Version   string                 `protobuf:"bytes,3,opt,name=version,proto3" json:"version,omitempty"`
+	// enrollment_token authenticates this runtime as a managed fleet device
+	// (Increment 9, EDGE-120/ARC-210 "per-device credentials"): presented on
+	// every Register call (not just the first), checked against a hash
+	// stored control-plane-side. Empty is accepted for the walking-skeleton
+	// no-token local/dev setup (backward compatible); once a runtime_id has
+	// been enrolled with a token, subsequent Register calls for that same
+	// runtime_id must present a token that hashes to the same enrollment.
+	EnrollmentToken string `protobuf:"bytes,4,opt,name=enrollment_token,json=enrollmentToken,proto3" json:"enrollment_token,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *RegisterRequest) Reset() {
@@ -130,6 +138,13 @@ func (x *RegisterRequest) GetKind() RuntimeKind {
 func (x *RegisterRequest) GetVersion() string {
 	if x != nil {
 		return x.Version
+	}
+	return ""
+}
+
+func (x *RegisterRequest) GetEnrollmentToken() string {
+	if x != nil {
+		return x.EnrollmentToken
 	}
 	return ""
 }
@@ -186,17 +201,77 @@ func (x *RegisterResponse) GetSessionToken() string {
 	return ""
 }
 
-type HeartbeatRequest struct {
+// FlowStatus is one deployed flow's coarse health, reported on every
+// Heartbeat for fleet inventory (EDGE-120 "flow status").
+type FlowStatus struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	RuntimeId     string                 `protobuf:"bytes,1,opt,name=runtime_id,json=runtimeId,proto3" json:"runtime_id,omitempty"`
-	SessionToken  string                 `protobuf:"bytes,2,opt,name=session_token,json=sessionToken,proto3" json:"session_token,omitempty"`
+	FlowId        string                 `protobuf:"bytes,1,opt,name=flow_id,json=flowId,proto3" json:"flow_id,omitempty"`
+	Status        string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"` // "running" | "error"
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FlowStatus) Reset() {
+	*x = FlowStatus{}
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FlowStatus) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FlowStatus) ProtoMessage() {}
+
+func (x *FlowStatus) ProtoReflect() protoreflect.Message {
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FlowStatus.ProtoReflect.Descriptor instead.
+func (*FlowStatus) Descriptor() ([]byte, []int) {
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *FlowStatus) GetFlowId() string {
+	if x != nil {
+		return x.FlowId
+	}
+	return ""
+}
+
+func (x *FlowStatus) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+type HeartbeatRequest struct {
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	RuntimeId    string                 `protobuf:"bytes,1,opt,name=runtime_id,json=runtimeId,proto3" json:"runtime_id,omitempty"`
+	SessionToken string                 `protobuf:"bytes,2,opt,name=session_token,json=sessionToken,proto3" json:"session_token,omitempty"`
+	// Fleet health snapshot (Increment 9, EDGE-120 "inventory with health
+	// (online, CPU, memory, flow status, versions)"). All optional/best
+	// effort — a runtime that can't sample CPU still heartbeats.
+	CpuPercent    float64       `protobuf:"fixed64,3,opt,name=cpu_percent,json=cpuPercent,proto3" json:"cpu_percent,omitempty"`
+	MemoryBytes   uint64        `protobuf:"varint,4,opt,name=memory_bytes,json=memoryBytes,proto3" json:"memory_bytes,omitempty"`
+	FlowStatuses  []*FlowStatus `protobuf:"bytes,5,rep,name=flow_statuses,json=flowStatuses,proto3" json:"flow_statuses,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *HeartbeatRequest) Reset() {
 	*x = HeartbeatRequest{}
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[2]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -208,7 +283,7 @@ func (x *HeartbeatRequest) String() string {
 func (*HeartbeatRequest) ProtoMessage() {}
 
 func (x *HeartbeatRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[2]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -221,7 +296,7 @@ func (x *HeartbeatRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HeartbeatRequest.ProtoReflect.Descriptor instead.
 func (*HeartbeatRequest) Descriptor() ([]byte, []int) {
-	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{2}
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *HeartbeatRequest) GetRuntimeId() string {
@@ -238,6 +313,27 @@ func (x *HeartbeatRequest) GetSessionToken() string {
 	return ""
 }
 
+func (x *HeartbeatRequest) GetCpuPercent() float64 {
+	if x != nil {
+		return x.CpuPercent
+	}
+	return 0
+}
+
+func (x *HeartbeatRequest) GetMemoryBytes() uint64 {
+	if x != nil {
+		return x.MemoryBytes
+	}
+	return 0
+}
+
+func (x *HeartbeatRequest) GetFlowStatuses() []*FlowStatus {
+	if x != nil {
+		return x.FlowStatuses
+	}
+	return nil
+}
+
 type HeartbeatResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Ok            bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
@@ -247,7 +343,7 @@ type HeartbeatResponse struct {
 
 func (x *HeartbeatResponse) Reset() {
 	*x = HeartbeatResponse{}
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[3]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -259,7 +355,7 @@ func (x *HeartbeatResponse) String() string {
 func (*HeartbeatResponse) ProtoMessage() {}
 
 func (x *HeartbeatResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[3]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -272,7 +368,7 @@ func (x *HeartbeatResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HeartbeatResponse.ProtoReflect.Descriptor instead.
 func (*HeartbeatResponse) Descriptor() ([]byte, []int) {
-	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{3}
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *HeartbeatResponse) GetOk() bool {
@@ -292,7 +388,7 @@ type DeployStreamRequest struct {
 
 func (x *DeployStreamRequest) Reset() {
 	*x = DeployStreamRequest{}
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[4]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -304,7 +400,7 @@ func (x *DeployStreamRequest) String() string {
 func (*DeployStreamRequest) ProtoMessage() {}
 
 func (x *DeployStreamRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[4]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -317,7 +413,7 @@ func (x *DeployStreamRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeployStreamRequest.ProtoReflect.Descriptor instead.
 func (*DeployStreamRequest) Descriptor() ([]byte, []int) {
-	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{4}
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *DeployStreamRequest) GetRuntimeId() string {
@@ -353,7 +449,7 @@ type DeployStreamResponse struct {
 
 func (x *DeployStreamResponse) Reset() {
 	*x = DeployStreamResponse{}
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[5]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -365,7 +461,7 @@ func (x *DeployStreamResponse) String() string {
 func (*DeployStreamResponse) ProtoMessage() {}
 
 func (x *DeployStreamResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[5]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -378,7 +474,7 @@ func (x *DeployStreamResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeployStreamResponse.ProtoReflect.Descriptor instead.
 func (*DeployStreamResponse) Descriptor() ([]byte, []int) {
-	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{5}
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *DeployStreamResponse) GetFlowId() string {
@@ -426,7 +522,7 @@ type DebugChannelRequest struct {
 
 func (x *DebugChannelRequest) Reset() {
 	*x = DebugChannelRequest{}
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[6]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -438,7 +534,7 @@ func (x *DebugChannelRequest) String() string {
 func (*DebugChannelRequest) ProtoMessage() {}
 
 func (x *DebugChannelRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[6]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -451,7 +547,7 @@ func (x *DebugChannelRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DebugChannelRequest.ProtoReflect.Descriptor instead.
 func (*DebugChannelRequest) Descriptor() ([]byte, []int) {
-	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{6}
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *DebugChannelRequest) GetRuntimeId() string {
@@ -535,7 +631,7 @@ type DebugEvent struct {
 
 func (x *DebugEvent) Reset() {
 	*x = DebugEvent{}
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[7]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -547,7 +643,7 @@ func (x *DebugEvent) String() string {
 func (*DebugEvent) ProtoMessage() {}
 
 func (x *DebugEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[7]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -560,7 +656,7 @@ func (x *DebugEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DebugEvent.ProtoReflect.Descriptor instead.
 func (*DebugEvent) Descriptor() ([]byte, []int) {
-	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{7}
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *DebugEvent) GetId() string {
@@ -665,7 +761,7 @@ type WireMetricsSnapshot struct {
 
 func (x *WireMetricsSnapshot) Reset() {
 	*x = WireMetricsSnapshot{}
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[8]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -677,7 +773,7 @@ func (x *WireMetricsSnapshot) String() string {
 func (*WireMetricsSnapshot) ProtoMessage() {}
 
 func (x *WireMetricsSnapshot) ProtoReflect() protoreflect.Message {
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[8]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -690,7 +786,7 @@ func (x *WireMetricsSnapshot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WireMetricsSnapshot.ProtoReflect.Descriptor instead.
 func (*WireMetricsSnapshot) Descriptor() ([]byte, []int) {
-	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{8}
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *WireMetricsSnapshot) GetFlowId() string {
@@ -760,7 +856,7 @@ type DebugChannelResponse struct {
 
 func (x *DebugChannelResponse) Reset() {
 	*x = DebugChannelResponse{}
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[9]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -772,7 +868,7 @@ func (x *DebugChannelResponse) String() string {
 func (*DebugChannelResponse) ProtoMessage() {}
 
 func (x *DebugChannelResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[9]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -785,7 +881,7 @@ func (x *DebugChannelResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DebugChannelResponse.ProtoReflect.Descriptor instead.
 func (*DebugChannelResponse) Descriptor() ([]byte, []int) {
-	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{9}
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *DebugChannelResponse) GetPayload() isDebugChannelResponse_Payload {
@@ -838,7 +934,7 @@ type SubscribeFlow struct {
 
 func (x *SubscribeFlow) Reset() {
 	*x = SubscribeFlow{}
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[10]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -850,7 +946,7 @@ func (x *SubscribeFlow) String() string {
 func (*SubscribeFlow) ProtoMessage() {}
 
 func (x *SubscribeFlow) ProtoReflect() protoreflect.Message {
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[10]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -863,7 +959,7 @@ func (x *SubscribeFlow) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubscribeFlow.ProtoReflect.Descriptor instead.
 func (*SubscribeFlow) Descriptor() ([]byte, []int) {
-	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{10}
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *SubscribeFlow) GetFlowId() string {
@@ -882,7 +978,7 @@ type UnsubscribeFlow struct {
 
 func (x *UnsubscribeFlow) Reset() {
 	*x = UnsubscribeFlow{}
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[11]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -894,7 +990,7 @@ func (x *UnsubscribeFlow) String() string {
 func (*UnsubscribeFlow) ProtoMessage() {}
 
 func (x *UnsubscribeFlow) ProtoReflect() protoreflect.Message {
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[11]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -907,7 +1003,7 @@ func (x *UnsubscribeFlow) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnsubscribeFlow.ProtoReflect.Descriptor instead.
 func (*UnsubscribeFlow) Descriptor() ([]byte, []int) {
-	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{11}
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *UnsubscribeFlow) GetFlowId() string {
@@ -928,7 +1024,7 @@ type ResolveConnectionRequest struct {
 
 func (x *ResolveConnectionRequest) Reset() {
 	*x = ResolveConnectionRequest{}
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[12]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -940,7 +1036,7 @@ func (x *ResolveConnectionRequest) String() string {
 func (*ResolveConnectionRequest) ProtoMessage() {}
 
 func (x *ResolveConnectionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[12]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -953,7 +1049,7 @@ func (x *ResolveConnectionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveConnectionRequest.ProtoReflect.Descriptor instead.
 func (*ResolveConnectionRequest) Descriptor() ([]byte, []int) {
-	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{12}
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ResolveConnectionRequest) GetRuntimeId() string {
@@ -991,7 +1087,7 @@ type ResolveConnectionResponse struct {
 
 func (x *ResolveConnectionResponse) Reset() {
 	*x = ResolveConnectionResponse{}
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[13]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1003,7 +1099,7 @@ func (x *ResolveConnectionResponse) String() string {
 func (*ResolveConnectionResponse) ProtoMessage() {}
 
 func (x *ResolveConnectionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[13]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1016,7 +1112,7 @@ func (x *ResolveConnectionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveConnectionResponse.ProtoReflect.Descriptor instead.
 func (*ResolveConnectionResponse) Descriptor() ([]byte, []int) {
-	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{13}
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ResolveConnectionResponse) GetType() string {
@@ -1058,7 +1154,7 @@ type EventChannelRequest struct {
 
 func (x *EventChannelRequest) Reset() {
 	*x = EventChannelRequest{}
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[14]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1070,7 +1166,7 @@ func (x *EventChannelRequest) String() string {
 func (*EventChannelRequest) ProtoMessage() {}
 
 func (x *EventChannelRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[14]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1083,7 +1179,7 @@ func (x *EventChannelRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventChannelRequest.ProtoReflect.Descriptor instead.
 func (*EventChannelRequest) Descriptor() ([]byte, []int) {
-	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{14}
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *EventChannelRequest) GetRuntimeId() string {
@@ -1176,7 +1272,7 @@ type ExecutionEvent struct {
 
 func (x *ExecutionEvent) Reset() {
 	*x = ExecutionEvent{}
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[15]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1188,7 +1284,7 @@ func (x *ExecutionEvent) String() string {
 func (*ExecutionEvent) ProtoMessage() {}
 
 func (x *ExecutionEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[15]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1201,7 +1297,7 @@ func (x *ExecutionEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecutionEvent.ProtoReflect.Descriptor instead.
 func (*ExecutionEvent) Descriptor() ([]byte, []int) {
-	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{15}
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ExecutionEvent) GetExecutionId() string {
@@ -1354,7 +1450,7 @@ type DeadLetterEvent struct {
 
 func (x *DeadLetterEvent) Reset() {
 	*x = DeadLetterEvent{}
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[16]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1366,7 +1462,7 @@ func (x *DeadLetterEvent) String() string {
 func (*DeadLetterEvent) ProtoMessage() {}
 
 func (x *DeadLetterEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[16]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1379,7 +1475,7 @@ func (x *DeadLetterEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeadLetterEvent.ProtoReflect.Descriptor instead.
 func (*DeadLetterEvent) Descriptor() ([]byte, []int) {
-	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{16}
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *DeadLetterEvent) GetId() string {
@@ -1448,7 +1544,7 @@ type EventChannelResponse struct {
 
 func (x *EventChannelResponse) Reset() {
 	*x = EventChannelResponse{}
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[17]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1460,7 +1556,7 @@ func (x *EventChannelResponse) String() string {
 func (*EventChannelResponse) ProtoMessage() {}
 
 func (x *EventChannelResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[17]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1473,7 +1569,7 @@ func (x *EventChannelResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventChannelResponse.ProtoReflect.Descriptor instead.
 func (*EventChannelResponse) Descriptor() ([]byte, []int) {
-	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{17}
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *EventChannelResponse) GetPayload() isEventChannelResponse_Payload {
@@ -1552,7 +1648,7 @@ type RunExecution struct {
 
 func (x *RunExecution) Reset() {
 	*x = RunExecution{}
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[18]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1564,7 +1660,7 @@ func (x *RunExecution) String() string {
 func (*RunExecution) ProtoMessage() {}
 
 func (x *RunExecution) ProtoReflect() protoreflect.Message {
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[18]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1577,7 +1673,7 @@ func (x *RunExecution) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunExecution.ProtoReflect.Descriptor instead.
 func (*RunExecution) Descriptor() ([]byte, []int) {
-	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{18}
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *RunExecution) GetFlowId() string {
@@ -1631,7 +1727,7 @@ type CancelExecution struct {
 
 func (x *CancelExecution) Reset() {
 	*x = CancelExecution{}
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[19]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1643,7 +1739,7 @@ func (x *CancelExecution) String() string {
 func (*CancelExecution) ProtoMessage() {}
 
 func (x *CancelExecution) ProtoReflect() protoreflect.Message {
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[19]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1656,7 +1752,7 @@ func (x *CancelExecution) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelExecution.ProtoReflect.Descriptor instead.
 func (*CancelExecution) Descriptor() ([]byte, []int) {
-	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{19}
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *CancelExecution) GetExecutionId() string {
@@ -1681,7 +1777,7 @@ type ReinjectDeadLetter struct {
 
 func (x *ReinjectDeadLetter) Reset() {
 	*x = ReinjectDeadLetter{}
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[20]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1693,7 +1789,7 @@ func (x *ReinjectDeadLetter) String() string {
 func (*ReinjectDeadLetter) ProtoMessage() {}
 
 func (x *ReinjectDeadLetter) ProtoReflect() protoreflect.Message {
-	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[20]
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1706,7 +1802,7 @@ func (x *ReinjectDeadLetter) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReinjectDeadLetter.ProtoReflect.Descriptor instead.
 func (*ReinjectDeadLetter) Descriptor() ([]byte, []int) {
-	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{20}
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ReinjectDeadLetter) GetFlowId() string {
@@ -1741,19 +1837,28 @@ var File_datapipe_runtime_v1_runtime_proto protoreflect.FileDescriptor
 
 const file_datapipe_runtime_v1_runtime_proto_rawDesc = "" +
 	"\n" +
-	"!datapipe/runtime/v1/runtime.proto\x12\x13datapipe.runtime.v1\"\x80\x01\n" +
+	"!datapipe/runtime/v1/runtime.proto\x12\x13datapipe.runtime.v1\"\xab\x01\n" +
 	"\x0fRegisterRequest\x12\x1d\n" +
 	"\n" +
 	"runtime_id\x18\x01 \x01(\tR\truntimeId\x124\n" +
 	"\x04kind\x18\x02 \x01(\x0e2 .datapipe.runtime.v1.RuntimeKindR\x04kind\x12\x18\n" +
-	"\aversion\x18\x03 \x01(\tR\aversion\"S\n" +
+	"\aversion\x18\x03 \x01(\tR\aversion\x12)\n" +
+	"\x10enrollment_token\x18\x04 \x01(\tR\x0fenrollmentToken\"S\n" +
 	"\x10RegisterResponse\x12\x1a\n" +
 	"\baccepted\x18\x01 \x01(\bR\baccepted\x12#\n" +
-	"\rsession_token\x18\x02 \x01(\tR\fsessionToken\"V\n" +
+	"\rsession_token\x18\x02 \x01(\tR\fsessionToken\"=\n" +
+	"\n" +
+	"FlowStatus\x12\x17\n" +
+	"\aflow_id\x18\x01 \x01(\tR\x06flowId\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\"\xe0\x01\n" +
 	"\x10HeartbeatRequest\x12\x1d\n" +
 	"\n" +
 	"runtime_id\x18\x01 \x01(\tR\truntimeId\x12#\n" +
-	"\rsession_token\x18\x02 \x01(\tR\fsessionToken\"#\n" +
+	"\rsession_token\x18\x02 \x01(\tR\fsessionToken\x12\x1f\n" +
+	"\vcpu_percent\x18\x03 \x01(\x01R\n" +
+	"cpuPercent\x12!\n" +
+	"\fmemory_bytes\x18\x04 \x01(\x04R\vmemoryBytes\x12D\n" +
+	"\rflow_statuses\x18\x05 \x03(\v2\x1f.datapipe.runtime.v1.FlowStatusR\fflowStatuses\"#\n" +
 	"\x11HeartbeatResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\"Y\n" +
 	"\x13DeployStreamRequest\x12\x1d\n" +
@@ -1902,59 +2007,61 @@ func file_datapipe_runtime_v1_runtime_proto_rawDescGZIP() []byte {
 }
 
 var file_datapipe_runtime_v1_runtime_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_datapipe_runtime_v1_runtime_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
+var file_datapipe_runtime_v1_runtime_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
 var file_datapipe_runtime_v1_runtime_proto_goTypes = []any{
 	(RuntimeKind)(0),                  // 0: datapipe.runtime.v1.RuntimeKind
 	(*RegisterRequest)(nil),           // 1: datapipe.runtime.v1.RegisterRequest
 	(*RegisterResponse)(nil),          // 2: datapipe.runtime.v1.RegisterResponse
-	(*HeartbeatRequest)(nil),          // 3: datapipe.runtime.v1.HeartbeatRequest
-	(*HeartbeatResponse)(nil),         // 4: datapipe.runtime.v1.HeartbeatResponse
-	(*DeployStreamRequest)(nil),       // 5: datapipe.runtime.v1.DeployStreamRequest
-	(*DeployStreamResponse)(nil),      // 6: datapipe.runtime.v1.DeployStreamResponse
-	(*DebugChannelRequest)(nil),       // 7: datapipe.runtime.v1.DebugChannelRequest
-	(*DebugEvent)(nil),                // 8: datapipe.runtime.v1.DebugEvent
-	(*WireMetricsSnapshot)(nil),       // 9: datapipe.runtime.v1.WireMetricsSnapshot
-	(*DebugChannelResponse)(nil),      // 10: datapipe.runtime.v1.DebugChannelResponse
-	(*SubscribeFlow)(nil),             // 11: datapipe.runtime.v1.SubscribeFlow
-	(*UnsubscribeFlow)(nil),           // 12: datapipe.runtime.v1.UnsubscribeFlow
-	(*ResolveConnectionRequest)(nil),  // 13: datapipe.runtime.v1.ResolveConnectionRequest
-	(*ResolveConnectionResponse)(nil), // 14: datapipe.runtime.v1.ResolveConnectionResponse
-	(*EventChannelRequest)(nil),       // 15: datapipe.runtime.v1.EventChannelRequest
-	(*ExecutionEvent)(nil),            // 16: datapipe.runtime.v1.ExecutionEvent
-	(*DeadLetterEvent)(nil),           // 17: datapipe.runtime.v1.DeadLetterEvent
-	(*EventChannelResponse)(nil),      // 18: datapipe.runtime.v1.EventChannelResponse
-	(*RunExecution)(nil),              // 19: datapipe.runtime.v1.RunExecution
-	(*CancelExecution)(nil),           // 20: datapipe.runtime.v1.CancelExecution
-	(*ReinjectDeadLetter)(nil),        // 21: datapipe.runtime.v1.ReinjectDeadLetter
+	(*FlowStatus)(nil),                // 3: datapipe.runtime.v1.FlowStatus
+	(*HeartbeatRequest)(nil),          // 4: datapipe.runtime.v1.HeartbeatRequest
+	(*HeartbeatResponse)(nil),         // 5: datapipe.runtime.v1.HeartbeatResponse
+	(*DeployStreamRequest)(nil),       // 6: datapipe.runtime.v1.DeployStreamRequest
+	(*DeployStreamResponse)(nil),      // 7: datapipe.runtime.v1.DeployStreamResponse
+	(*DebugChannelRequest)(nil),       // 8: datapipe.runtime.v1.DebugChannelRequest
+	(*DebugEvent)(nil),                // 9: datapipe.runtime.v1.DebugEvent
+	(*WireMetricsSnapshot)(nil),       // 10: datapipe.runtime.v1.WireMetricsSnapshot
+	(*DebugChannelResponse)(nil),      // 11: datapipe.runtime.v1.DebugChannelResponse
+	(*SubscribeFlow)(nil),             // 12: datapipe.runtime.v1.SubscribeFlow
+	(*UnsubscribeFlow)(nil),           // 13: datapipe.runtime.v1.UnsubscribeFlow
+	(*ResolveConnectionRequest)(nil),  // 14: datapipe.runtime.v1.ResolveConnectionRequest
+	(*ResolveConnectionResponse)(nil), // 15: datapipe.runtime.v1.ResolveConnectionResponse
+	(*EventChannelRequest)(nil),       // 16: datapipe.runtime.v1.EventChannelRequest
+	(*ExecutionEvent)(nil),            // 17: datapipe.runtime.v1.ExecutionEvent
+	(*DeadLetterEvent)(nil),           // 18: datapipe.runtime.v1.DeadLetterEvent
+	(*EventChannelResponse)(nil),      // 19: datapipe.runtime.v1.EventChannelResponse
+	(*RunExecution)(nil),              // 20: datapipe.runtime.v1.RunExecution
+	(*CancelExecution)(nil),           // 21: datapipe.runtime.v1.CancelExecution
+	(*ReinjectDeadLetter)(nil),        // 22: datapipe.runtime.v1.ReinjectDeadLetter
 }
 var file_datapipe_runtime_v1_runtime_proto_depIdxs = []int32{
 	0,  // 0: datapipe.runtime.v1.RegisterRequest.kind:type_name -> datapipe.runtime.v1.RuntimeKind
-	8,  // 1: datapipe.runtime.v1.DebugChannelRequest.event:type_name -> datapipe.runtime.v1.DebugEvent
-	9,  // 2: datapipe.runtime.v1.DebugChannelRequest.wire_metrics:type_name -> datapipe.runtime.v1.WireMetricsSnapshot
-	11, // 3: datapipe.runtime.v1.DebugChannelResponse.subscribe:type_name -> datapipe.runtime.v1.SubscribeFlow
-	12, // 4: datapipe.runtime.v1.DebugChannelResponse.unsubscribe:type_name -> datapipe.runtime.v1.UnsubscribeFlow
-	16, // 5: datapipe.runtime.v1.EventChannelRequest.execution_event:type_name -> datapipe.runtime.v1.ExecutionEvent
-	17, // 6: datapipe.runtime.v1.EventChannelRequest.dead_letter_event:type_name -> datapipe.runtime.v1.DeadLetterEvent
-	19, // 7: datapipe.runtime.v1.EventChannelResponse.run_execution:type_name -> datapipe.runtime.v1.RunExecution
-	20, // 8: datapipe.runtime.v1.EventChannelResponse.cancel_execution:type_name -> datapipe.runtime.v1.CancelExecution
-	21, // 9: datapipe.runtime.v1.EventChannelResponse.reinject_dead_letter:type_name -> datapipe.runtime.v1.ReinjectDeadLetter
-	1,  // 10: datapipe.runtime.v1.RuntimeRegistryService.Register:input_type -> datapipe.runtime.v1.RegisterRequest
-	3,  // 11: datapipe.runtime.v1.RuntimeRegistryService.Heartbeat:input_type -> datapipe.runtime.v1.HeartbeatRequest
-	5,  // 12: datapipe.runtime.v1.RuntimeRegistryService.DeployStream:input_type -> datapipe.runtime.v1.DeployStreamRequest
-	7,  // 13: datapipe.runtime.v1.RuntimeRegistryService.DebugChannel:input_type -> datapipe.runtime.v1.DebugChannelRequest
-	13, // 14: datapipe.runtime.v1.RuntimeRegistryService.ResolveConnection:input_type -> datapipe.runtime.v1.ResolveConnectionRequest
-	15, // 15: datapipe.runtime.v1.RuntimeRegistryService.EventChannel:input_type -> datapipe.runtime.v1.EventChannelRequest
-	2,  // 16: datapipe.runtime.v1.RuntimeRegistryService.Register:output_type -> datapipe.runtime.v1.RegisterResponse
-	4,  // 17: datapipe.runtime.v1.RuntimeRegistryService.Heartbeat:output_type -> datapipe.runtime.v1.HeartbeatResponse
-	6,  // 18: datapipe.runtime.v1.RuntimeRegistryService.DeployStream:output_type -> datapipe.runtime.v1.DeployStreamResponse
-	10, // 19: datapipe.runtime.v1.RuntimeRegistryService.DebugChannel:output_type -> datapipe.runtime.v1.DebugChannelResponse
-	14, // 20: datapipe.runtime.v1.RuntimeRegistryService.ResolveConnection:output_type -> datapipe.runtime.v1.ResolveConnectionResponse
-	18, // 21: datapipe.runtime.v1.RuntimeRegistryService.EventChannel:output_type -> datapipe.runtime.v1.EventChannelResponse
-	16, // [16:22] is the sub-list for method output_type
-	10, // [10:16] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	3,  // 1: datapipe.runtime.v1.HeartbeatRequest.flow_statuses:type_name -> datapipe.runtime.v1.FlowStatus
+	9,  // 2: datapipe.runtime.v1.DebugChannelRequest.event:type_name -> datapipe.runtime.v1.DebugEvent
+	10, // 3: datapipe.runtime.v1.DebugChannelRequest.wire_metrics:type_name -> datapipe.runtime.v1.WireMetricsSnapshot
+	12, // 4: datapipe.runtime.v1.DebugChannelResponse.subscribe:type_name -> datapipe.runtime.v1.SubscribeFlow
+	13, // 5: datapipe.runtime.v1.DebugChannelResponse.unsubscribe:type_name -> datapipe.runtime.v1.UnsubscribeFlow
+	17, // 6: datapipe.runtime.v1.EventChannelRequest.execution_event:type_name -> datapipe.runtime.v1.ExecutionEvent
+	18, // 7: datapipe.runtime.v1.EventChannelRequest.dead_letter_event:type_name -> datapipe.runtime.v1.DeadLetterEvent
+	20, // 8: datapipe.runtime.v1.EventChannelResponse.run_execution:type_name -> datapipe.runtime.v1.RunExecution
+	21, // 9: datapipe.runtime.v1.EventChannelResponse.cancel_execution:type_name -> datapipe.runtime.v1.CancelExecution
+	22, // 10: datapipe.runtime.v1.EventChannelResponse.reinject_dead_letter:type_name -> datapipe.runtime.v1.ReinjectDeadLetter
+	1,  // 11: datapipe.runtime.v1.RuntimeRegistryService.Register:input_type -> datapipe.runtime.v1.RegisterRequest
+	4,  // 12: datapipe.runtime.v1.RuntimeRegistryService.Heartbeat:input_type -> datapipe.runtime.v1.HeartbeatRequest
+	6,  // 13: datapipe.runtime.v1.RuntimeRegistryService.DeployStream:input_type -> datapipe.runtime.v1.DeployStreamRequest
+	8,  // 14: datapipe.runtime.v1.RuntimeRegistryService.DebugChannel:input_type -> datapipe.runtime.v1.DebugChannelRequest
+	14, // 15: datapipe.runtime.v1.RuntimeRegistryService.ResolveConnection:input_type -> datapipe.runtime.v1.ResolveConnectionRequest
+	16, // 16: datapipe.runtime.v1.RuntimeRegistryService.EventChannel:input_type -> datapipe.runtime.v1.EventChannelRequest
+	2,  // 17: datapipe.runtime.v1.RuntimeRegistryService.Register:output_type -> datapipe.runtime.v1.RegisterResponse
+	5,  // 18: datapipe.runtime.v1.RuntimeRegistryService.Heartbeat:output_type -> datapipe.runtime.v1.HeartbeatResponse
+	7,  // 19: datapipe.runtime.v1.RuntimeRegistryService.DeployStream:output_type -> datapipe.runtime.v1.DeployStreamResponse
+	11, // 20: datapipe.runtime.v1.RuntimeRegistryService.DebugChannel:output_type -> datapipe.runtime.v1.DebugChannelResponse
+	15, // 21: datapipe.runtime.v1.RuntimeRegistryService.ResolveConnection:output_type -> datapipe.runtime.v1.ResolveConnectionResponse
+	19, // 22: datapipe.runtime.v1.RuntimeRegistryService.EventChannel:output_type -> datapipe.runtime.v1.EventChannelResponse
+	17, // [17:23] is the sub-list for method output_type
+	11, // [11:17] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_datapipe_runtime_v1_runtime_proto_init() }
@@ -1962,19 +2069,19 @@ func file_datapipe_runtime_v1_runtime_proto_init() {
 	if File_datapipe_runtime_v1_runtime_proto != nil {
 		return
 	}
-	file_datapipe_runtime_v1_runtime_proto_msgTypes[6].OneofWrappers = []any{
+	file_datapipe_runtime_v1_runtime_proto_msgTypes[7].OneofWrappers = []any{
 		(*DebugChannelRequest_Event)(nil),
 		(*DebugChannelRequest_WireMetrics)(nil),
 	}
-	file_datapipe_runtime_v1_runtime_proto_msgTypes[9].OneofWrappers = []any{
+	file_datapipe_runtime_v1_runtime_proto_msgTypes[10].OneofWrappers = []any{
 		(*DebugChannelResponse_Subscribe)(nil),
 		(*DebugChannelResponse_Unsubscribe)(nil),
 	}
-	file_datapipe_runtime_v1_runtime_proto_msgTypes[14].OneofWrappers = []any{
+	file_datapipe_runtime_v1_runtime_proto_msgTypes[15].OneofWrappers = []any{
 		(*EventChannelRequest_ExecutionEvent)(nil),
 		(*EventChannelRequest_DeadLetterEvent)(nil),
 	}
-	file_datapipe_runtime_v1_runtime_proto_msgTypes[17].OneofWrappers = []any{
+	file_datapipe_runtime_v1_runtime_proto_msgTypes[18].OneofWrappers = []any{
 		(*EventChannelResponse_RunExecution)(nil),
 		(*EventChannelResponse_CancelExecution)(nil),
 		(*EventChannelResponse_ReinjectDeadLetter)(nil),
@@ -1985,7 +2092,7 @@ func file_datapipe_runtime_v1_runtime_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_datapipe_runtime_v1_runtime_proto_rawDesc), len(file_datapipe_runtime_v1_runtime_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   21,
+			NumMessages:   22,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -1,6 +1,6 @@
 # DataPipe — Administrator Guide
 
-**Covers:** development state after Increment 8 · **Audience:** operators of a DataPipe installation
+**Covers:** development state after Increment 9 · **Audience:** operators of a DataPipe installation
 **Components:** control plane (REST API + gRPC registry), runtime (flow engine), PostgreSQL or SQLite, editor UI.
 
 ## 1. Installation
@@ -47,8 +47,10 @@ Both binaries are static Go builds (`make build`). The control plane picks its d
 | `RUNTIME_HTTP_ADDR` | `:8081` | health endpoint |
 | `CONTROLPLANE_GRPC_ADDR` | `localhost:9090` | where to register (runtime dials out — firewall friendly) |
 | `RUNTIME_ID` | random UUID | stable id; set it explicitly so the runtime keeps its identity across restarts |
+| `RUNTIME_ENROLL_TOKEN` | *(unset)* | per-device credential for fleet enrollment (EDGE-120/ARC-210, §8.1); leave unset for the walking-skeleton no-token path (fine for a single local/dev server) |
+| `RUNTIME_DATA_DIR` | `./data` | base directory for `onError:"storeForward"` durable per-node queues (EDGE-130, §8.4); needs to be a real persistent volume/disk on an edge device, not tmpfs |
 
-**Security note:** the runtime↔control-plane gRPC channel currently uses insecure transport credentials (walking-skeleton state, tracked in TODO.md). Until TLS lands (planned before edge rollout, per Architecture §2.5), only run both on the same host or a trusted network segment.
+**Security note:** the runtime↔control-plane gRPC channel still uses insecure *transport* credentials (walking-skeleton state, tracked in TODO.md) even though Increment 9 added *identity* authentication via enrollment tokens (§8.1) — a token could still be sniffed off an untrusted network. Until TLS lands (planned before edge rollout, per Architecture §2.5), only run both on the same host or a trusted network segment, even for enrolled edge devices.
 
 ## 3. User and permission management
 
@@ -74,7 +76,7 @@ Every security-relevant action (logins, user/permission changes, credential writ
 
 * Every deploy validates the flow with the same validator the runtime uses, then snapshots an immutable version (`GET /flows/{id}/versions`); rollback with `POST /flows/{id}/versions/{v}/rollback`.
 * Deploys are pushed to connected runtimes over a server-streaming gRPC channel; the runtime hot-swaps only the affected nodes (ENG-140) — untouched nodes keep running.
-* `GET /api/v1/runtimes` lists connected runtimes. Currently every deploy goes to **all** connected runtimes; per-runtime/group targeting arrives with fleet management (Increment 9).
+* `GET /api/v1/runtimes` lists connected runtimes, live health, and fleet group. A deploy with no `runtimeAssignment.group` in its content still goes to **all** connected runtimes (unchanged default); one with a group set only reaches runtimes enrolled into that group — see §8.2.
 * CLI: `datapipe deploy <flow.json> [-for <duration>]` deploys a flow file directly to a runtime (developer tool); `datapipe version` prints the build version.
 * **Crash recovery** (ERR-150): when a runtime (re)connects, the control plane immediately re-pushes every currently-deployed flow to it — no manual redeploy needed after a runtime restart. Any execution that was still `running`/`waiting` on a runtime whose connection just dropped is automatically marked `crashed` in its execution history (visible, re-runnable), rather than sitting "running" forever.
 
@@ -88,15 +90,43 @@ Transport: a second bidirectional gRPC stream, `EventChannel` (alongside `DebugC
 
 **Concurrency and timeouts**: a triggered flow's `settings.maxConcurrency`/`concurrencyPolicy` (`queue`|`reject`) and `executionTimeoutMs` are enforced runtime-side per flow, with no control-plane configuration needed beyond the flow content itself.
 
-## 8. Backup and restore
+## 8. Fleet management and edge runtimes
+
+### 8.1 Enrollment (EDGE-120/ARC-210)
+
+`POST /runtime-groups` creates a named fleet group; `POST /runtime-enroll-tokens` (System Admin) issues a per-device credential — a 32-byte random token, returned in plaintext exactly once in that response and stored control-plane-side only as its SHA-256 hash (`runtime_enroll_tokens.token_hash`), the same pattern session tokens already use. Optionally pre-assign the token to a group so the device lands there automatically.
+
+Start the edge runtime with `RUNTIME_ENROLL_TOKEN=<token>` (and a stable `RUNTIME_ID`). On `Register`, the control plane validates the token and creates a `devices` row (`runtime_id`, `kind`, `group_name`, `enroll_token_id`) if this is that runtime's first-ever registration; every *subsequent* `Register` for that same `runtime_id` must present the identical token or is rejected — enrollment, once established, is a real per-device credential check on every reconnect, not just a one-time bootstrap. A `runtime_id` that presents no token at all is still accepted as long as it has never enrolled (the pre-Increment-9 no-token path stays available for a single local/dev server). `DELETE /runtime-enroll-tokens/{id}` revokes a token (blocks future use); it does not retroactively un-enroll a device that already used it — there is no device-delete endpoint yet (tracked in TODO.md).
+
+`PATCH /runtimes/{id}` (System Admin) renames a device or (re)assigns its group directly, independent of enrollment — useful for grouping a runtime that registered without a token.
+
+### 8.2 Deploy targeting (UI-220)
+
+A flow's `runtimeAssignment.group` (set from the editor's deploy-target dropdown, or directly in the flow JSON) restricts which runtimes a deploy reaches: `registry.Service.DeployFlow` and the automatic re-push a (re)connecting runtime gets (§6's crash recovery) both filter by the runtime's current group membership. `""`/unset means every connected runtime, same as before Increment 9. Group membership can change at any time via `PATCH /runtimes/{id}`; it takes effect on the next deploy or reconnect, not retroactively on already-running nodes.
+
+**Caveat:** this does not add multi-flow-per-runtime support — a runtime still applies one deployed flow at a time regardless of how many different flows target its group (tracked in TODO.md).
+
+### 8.3 Fleet health
+
+`GET /api/v1/runtimes` reports each runtime's live CPU%/memory (self-sampled via `syscall.Getrusage`/`runtime.MemStats`, sent on every `Heartbeat`) and its current flow count — all in-memory, refreshed continuously, never persisted (persisted fleet state is only the admin-configured enrollment/group data in §8.1). A runtime with no open `DeployStream` reports `online: false` and no health snapshot.
+
+### 8.4 Store-and-forward (EDGE-130)
+
+A node's `errorPolicy.onError: "storeForward"` (set in the flow JSON; no config-panel UI yet) durably queues datagrams to local disk under `RUNTIME_DATA_DIR/storeforward/<flowId>/<nodeId>/` instead of failing/discarding when its destination is unreachable, and drains them in order once it recovers — including surviving the runtime process restarting while the backlog is still queued (verified by `engine/flow.TestEDGE130_StoreForwardQueueSurvivesDeploymentRestart`, race-detector clean). `storeForward.maxSizeMb`/`maxAgeSec` bound the queue; oldest entries are dropped past either limit (BUS-110 "nothing buffers unboundedly"), and drops are logged. This is what lets an edge flow "run autonomously without control-plane connection" (EDGE-130) — the queue and its drain loop live entirely inside the runtime process and need no round trip to the control plane to operate. Make sure `RUNTIME_DATA_DIR` points at real persistent storage on an edge device, not tmpfs, or the queue won't survive a reboot.
+
+### 8.5 Edge build
+
+`make build-edge` (from the repo root) cross-compiles a static, `CGO_ENABLED=0` runtime binary for `linux/arm64` by default (`EDGE_GOARCH=amd64` for x86-64 edge boxes), written to `dist/datapipe-runtime-linux-<arch>` — roughly 22 MB, no libc dependency, so it runs unmodified on a minimal/musl-based edge image. **Honestly unverified in this environment:** the binary has been confirmed to actually be a `linux/arm64` ELF (via `file`) and cross-compiles cleanly, but has never run on physical ARM64 hardware, and no real prolonged (30-minute) network partition was exercised — only a simulated "destination unreachable" and a full local process restart, which exercise the same store-and-forward code path but aren't the same as real hardware over a real outage. See TODO.md.
+
+## 9. Backup and restore
 
 Back up three things: the database (`pg_dump` for PostgreSQL, or a copy of the SQLite file taken while the control plane is stopped), the `DATAPIPE_MASTER_KEY` (separately, in a secret manager — a DB backup without the key has unrecoverable credentials), and your `deploy/` configuration. Restore = restore DB, set the same master key, start the control plane (migrations verify the schema), restart runtimes (they re-register and receive their flows on the next deploy).
 
-## 9. Live debug channel
+## 10. Live debug channel
 
 Since Increment 5 the editor's live inspection runs over a WebSocket at `/ws/debug` on the control plane (protocol documented in `docs/api/debug-websocket.md`; the session token travels as a query parameter because the WS handshake cannot carry the auth header). Access is gated at **Operator or higher** per project — Viewers cannot see payloads. The runtime only captures and forwards debug data for flows someone is actually watching, the live stream is rate-limited (default 20 events/s per node) and payloads over 4 KiB are truncated before relay, so debugging a high-volume flow does not overload runtime, control plane, or browser. Wire counters remain exact regardless of sampling.
 
-## 10. Monitoring and troubleshooting
+## 11. Monitoring and troubleshooting
 
 | Symptom | Check |
 |---|---|
@@ -110,6 +140,6 @@ Since Increment 5 the editor's live inspection runs over a WebSocket at `/ws/deb
 
 Health endpoints: control plane `:8080/healthz`, runtime `:8081/healthz` (compose maps it to 8082). Prometheus metrics (OBS-100) are specified but not implemented yet.
 
-## 11. Upgrades
+## 12. Upgrades
 
 Pull the new version, rebuild (`docker compose build` or `make build`), restart control plane first (runs migrations), then runtimes. Flow definitions and versions are forward-compatible per the flow file format's `formatVersion` rules. Take a backup before upgrading.

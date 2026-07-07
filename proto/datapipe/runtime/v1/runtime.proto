@@ -56,6 +56,14 @@ message RegisterRequest {
   string runtime_id = 1;
   RuntimeKind kind = 2;
   string version = 3;
+  // enrollment_token authenticates this runtime as a managed fleet device
+  // (Increment 9, EDGE-120/ARC-210 "per-device credentials"): presented on
+  // every Register call (not just the first), checked against a hash
+  // stored control-plane-side. Empty is accepted for the walking-skeleton
+  // no-token local/dev setup (backward compatible); once a runtime_id has
+  // been enrolled with a token, subsequent Register calls for that same
+  // runtime_id must present a token that hashes to the same enrollment.
+  string enrollment_token = 4;
 }
 
 message RegisterResponse {
@@ -63,9 +71,22 @@ message RegisterResponse {
   string session_token = 2;
 }
 
+// FlowStatus is one deployed flow's coarse health, reported on every
+// Heartbeat for fleet inventory (EDGE-120 "flow status").
+message FlowStatus {
+  string flow_id = 1;
+  string status = 2; // "running" | "error"
+}
+
 message HeartbeatRequest {
   string runtime_id = 1;
   string session_token = 2;
+  // Fleet health snapshot (Increment 9, EDGE-120 "inventory with health
+  // (online, CPU, memory, flow status, versions)"). All optional/best
+  // effort — a runtime that can't sample CPU still heartbeats.
+  double cpu_percent = 3;
+  uint64 memory_bytes = 4;
+  repeated FlowStatus flow_statuses = 5;
 }
 
 message HeartbeatResponse {

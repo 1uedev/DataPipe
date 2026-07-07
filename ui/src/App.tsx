@@ -8,6 +8,7 @@ import FlowEditor from './pages/FlowEditor'
 import FlowExecutions from './pages/FlowExecutions'
 import ExecutionDetail from './pages/ExecutionDetail'
 import FlowDeadLetters from './pages/FlowDeadLetters'
+import Fleet from './pages/Fleet'
 
 function App() {
   return (
@@ -22,6 +23,7 @@ function App() {
           <Route path="/projects/:projectId/flows/:flowId/executions" element={<FlowExecutions />} />
           <Route path="/projects/:projectId/flows/:flowId/executions/:executionId" element={<ExecutionDetail />} />
           <Route path="/projects/:projectId/flows/:flowId/dead-letters" element={<FlowDeadLetters />} />
+          <Route path="/fleet" element={<Fleet />} />
         </Route>
       </Route>
     </Routes>

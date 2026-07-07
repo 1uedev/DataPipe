@@ -67,12 +67,14 @@ type ExecutionStore interface {
 
 // DeployedFlowInfo is one currently-deployed flow's canonical content,
 // decoupled from controlplane/internal/api.DeployedFlow so registry never
-// depends on api/db.
+// depends on api/db. TargetGroup is UI-220's runtimeAssignment.group, ""
+// for "every connected runtime" (Increment 9).
 type DeployedFlowInfo struct {
 	FlowID           string
 	Version          int64
 	ContentJSON      string
 	DefaultErrorFlow string
+	TargetGroup      string
 }
 
 // DeployedFlowsLister answers "what's currently deployed", so a runtime
@@ -81,6 +83,40 @@ type DeployedFlowInfo struct {
 // Implemented (via a small adapter) by controlplane/internal/api.Store.
 type DeployedFlowsLister interface {
 	ListDeployedFlows(ctx context.Context) ([]DeployedFlowInfo, error)
+}
+
+// FlowStatus is one deployed flow's coarse health, reported on every
+// Heartbeat (Increment 9, EDGE-120 "flow status").
+type FlowStatus struct {
+	FlowID, Status string
+}
+
+// DeviceInfo is one runtime's admin-configured fleet metadata (Increment
+// 9, EDGE-120): group assignment, display name, and whether it was
+// registered with a valid enrollment token.
+type DeviceInfo struct {
+	Kind, DisplayName, GroupName string
+	Enrolled                     bool
+}
+
+// DeviceStore persists fleet enrollment/group state (Increment 9,
+// EDGE-120/ARC-210 "per-device credentials"); implemented directly by
+// controlplane/internal/api.Store (identical method signatures, no
+// adapter needed — the same pattern api.ExecutionCommander uses for
+// *registry.Service itself).
+type DeviceStore interface {
+	// Authenticate validates enrollmentToken (if non-empty) against a
+	// persisted device/token record and returns an error if it should be
+	// rejected (Register then fails the whole call). See
+	// api.Store.Authenticate's doc comment for the exact rules.
+	Authenticate(ctx context.Context, runtimeID, kind, enrollmentToken string) error
+	// GroupOf returns runtimeID's currently assigned fleet group ("" if
+	// unassigned or never enrolled) — used to filter DeployFlow's targets
+	// and DeployStream's re-push-on-connect (UI-220).
+	GroupOf(ctx context.Context, runtimeID string) (string, error)
+	// DeviceInfo returns runtimeID's admin-configured fleet metadata for
+	// the GET /runtimes inventory view.
+	DeviceInfo(ctx context.Context, runtimeID string) (DeviceInfo, error)
 }
 
 // deployChanBuffer bounds how many pending deploy commands a runtime can
@@ -99,6 +135,13 @@ type runtimeState struct {
 	lastSeen     time.Time
 	deployCh     chan *runtimev1.DeployStreamResponse // non-nil once DeployStream is open
 	eventCh      chan *runtimev1.EventChannelResponse // non-nil once EventChannel is open
+
+	// Fleet health (Increment 9, EDGE-120), refreshed on every Heartbeat —
+	// live, in-memory only, never persisted (persisted fleet state is
+	// admin-configured group/enrollment data, via DeviceStore).
+	cpuPercent   float64
+	memoryBytes  uint64
+	flowStatuses []FlowStatus
 }
 
 // Service implements runtimev1.RuntimeRegistryServiceServer with an
@@ -113,6 +156,7 @@ type Service struct {
 	connResolver   ConnectionResolver
 	executionStore ExecutionStore
 	deployedFlows  DeployedFlowsLister
+	deviceStore    DeviceStore
 }
 
 func NewService() *Service {
@@ -128,6 +172,18 @@ func (s *Service) SetExecutionStore(store ExecutionStore) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.executionStore = store
+}
+
+// SetDeviceStore wires in the durable fleet enrollment/group store
+// (Increment 9, EDGE-120/ARC-210). Must be called before any runtime
+// registers for enrollment-token authentication and group targeting to
+// take effect; nil disables both (every Register succeeds unauthenticated,
+// DeployFlow always broadcasts) — the pre-Increment-9 walking-skeleton
+// behavior.
+func (s *Service) SetDeviceStore(store DeviceStore) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.deviceStore = store
 }
 
 // SetDeployedFlowsLister wires in the source of truth for "what's currently
@@ -196,6 +252,15 @@ func (s *Service) Register(ctx context.Context, req *runtimev1.RegisterRequest) 
 		return &runtimev1.RegisterResponse{Accepted: false}, fmt.Errorf("runtime_id is required")
 	}
 
+	s.mu.Lock()
+	deviceStore := s.deviceStore
+	s.mu.Unlock()
+	if deviceStore != nil {
+		if err := deviceStore.Authenticate(ctx, req.GetRuntimeId(), runtimeKindString(req.GetKind()), req.GetEnrollmentToken()); err != nil {
+			return &runtimev1.RegisterResponse{Accepted: false}, fmt.Errorf("fleet authentication failed: %w", err)
+		}
+	}
+
 	token := uuid.NewString()
 
 	s.mu.Lock()
@@ -219,6 +284,12 @@ func (s *Service) Heartbeat(ctx context.Context, req *runtimev1.HeartbeatRequest
 		return &runtimev1.HeartbeatResponse{Ok: false}, fmt.Errorf("unknown runtime or session")
 	}
 	rt.lastSeen = time.Now()
+	rt.cpuPercent = req.GetCpuPercent()
+	rt.memoryBytes = req.GetMemoryBytes()
+	rt.flowStatuses = rt.flowStatuses[:0]
+	for _, fs := range req.GetFlowStatuses() {
+		rt.flowStatuses = append(rt.flowStatuses, FlowStatus{FlowID: fs.GetFlowId(), Status: fs.GetStatus()})
+	}
 	return &runtimev1.HeartbeatResponse{Ok: true}, nil
 }
 
@@ -242,6 +313,7 @@ func (s *Service) DeployStream(req *runtimev1.DeployStreamRequest, stream runtim
 	ch := make(chan *runtimev1.DeployStreamResponse, deployChanBuffer)
 	rt.deployCh = ch
 	lister := s.deployedFlows
+	deviceStore := s.deviceStore
 	s.mu.Unlock()
 
 	defer func() {
@@ -253,9 +325,22 @@ func (s *Service) DeployStream(req *runtimev1.DeployStreamRequest, stream runtim
 	}()
 
 	if lister != nil {
+		// This runtime's own fleet group (Increment 9, UI-220): only flows
+		// targeted at it specifically, or at no group at all, get re-pushed
+		// — mirrors DeployFlow's own targeting so a reconnecting runtime
+		// never receives a flow reserved for a different group.
+		myGroup := ""
+		if deviceStore != nil {
+			if g, err := deviceStore.GroupOf(stream.Context(), runtimeID); err == nil {
+				myGroup = g
+			}
+		}
 		flows, err := lister.ListDeployedFlows(stream.Context())
 		if err == nil {
 			for _, f := range flows {
+				if f.TargetGroup != "" && f.TargetGroup != myGroup {
+					continue
+				}
 				select {
 				case ch <- &runtimev1.DeployStreamResponse{FlowId: f.FlowID, Version: f.Version, FlowJson: f.ContentJSON, DefaultErrorFlow: f.DefaultErrorFlow}:
 				default:
@@ -277,23 +362,47 @@ func (s *Service) DeployStream(req *runtimev1.DeployStreamRequest, stream runtim
 }
 
 // DeployFlow implements controlplane/internal/api.Deployer: it pushes the
-// flow to every currently connected runtime with an open DeployStream.
-// Runtime-group assignment (Flow-File-Format.md's runtimeAssignment,
-// UI-220) is deferred to the fleet-management work of Increment 9 — for
-// now every connected runtime receives every deploy. defaultErrorFlow is
-// the owning project's ERR-120 fallback error-handler flow id.
-func (s *Service) DeployFlow(ctx context.Context, flowID string, version int64, flowJSON, defaultErrorFlow string) error {
+// flow to every currently connected runtime with an open DeployStream that
+// matches targetGroup (Flow-File-Format.md's runtimeAssignment.group,
+// UI-220) — "" means every connected runtime, regardless of its own group,
+// preserving the pre-Increment-9 broadcast-to-everyone default. A runtime
+// with no DeviceStore configured (or with SetDeviceStore never called) is
+// always treated as ungrouped, so it only ever receives targetGroup == ""
+// deploys. defaultErrorFlow is the owning project's ERR-120 fallback
+// error-handler flow id.
+func (s *Service) DeployFlow(ctx context.Context, flowID string, version int64, flowJSON, defaultErrorFlow, targetGroup string) error {
 	s.mu.Lock()
-	var channels []chan *runtimev1.DeployStreamResponse
-	for _, rt := range s.runtimes {
+	type candidate struct {
+		runtimeID string
+		ch        chan *runtimev1.DeployStreamResponse
+	}
+	var candidates []candidate
+	for id, rt := range s.runtimes {
 		if rt.deployCh != nil {
-			channels = append(channels, rt.deployCh)
+			candidates = append(candidates, candidate{runtimeID: id, ch: rt.deployCh})
 		}
 	}
+	deviceStore := s.deviceStore
 	s.mu.Unlock()
 
+	var channels []chan *runtimev1.DeployStreamResponse
+	for _, c := range candidates {
+		if targetGroup == "" {
+			channels = append(channels, c.ch)
+			continue
+		}
+		if deviceStore == nil {
+			continue
+		}
+		group, err := deviceStore.GroupOf(ctx, c.runtimeID)
+		if err != nil || group != targetGroup {
+			continue
+		}
+		channels = append(channels, c.ch)
+	}
+
 	if len(channels) == 0 {
-		return fmt.Errorf("no runtime currently connected")
+		return fmt.Errorf("no runtime currently connected in the target scope")
 	}
 
 	cmd := &runtimev1.DeployStreamResponse{FlowId: flowID, Version: version, FlowJson: flowJSON, DefaultErrorFlow: defaultErrorFlow}
@@ -467,27 +576,60 @@ func (s *Service) ReinjectDeadLetter(ctx context.Context, flowID, nodeID, port, 
 }
 
 // RuntimeSnapshot is a read-only view of one registered runtime, for the
-// fleet listing (GET /runtimes).
+// fleet listing (GET /runtimes) — live registry state (kind/version/
+// lastSeen/online/health) merged with admin-configured fleet metadata
+// (displayName/group/enrolled) from DeviceStore, if one is configured.
 type RuntimeSnapshot struct {
-	RuntimeID string
-	Kind      string
-	Version   string
-	LastSeen  time.Time
+	RuntimeID   string
+	Kind        string
+	Version     string
+	LastSeen    time.Time
+	Online      bool
+	CPUPercent  *float64
+	MemoryBytes *uint64
+	FlowCount   int
+	DisplayName string
+	Group       string
+	Enrolled    bool
 }
 
 // ListRuntimes returns every currently registered runtime.
-func (s *Service) ListRuntimes() []RuntimeSnapshot {
+func (s *Service) ListRuntimes(ctx context.Context) []RuntimeSnapshot {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	snaps := make([]RuntimeSnapshot, 0, len(s.runtimes))
+	type liveState struct {
+		id            string
+		kind, version string
+		lastSeen      time.Time
+		online        bool
+		cpuPercent    float64
+		memoryBytes   uint64
+		flowCount     int
+	}
+	live := make([]liveState, 0, len(s.runtimes))
 	for id, rt := range s.runtimes {
-		snaps = append(snaps, RuntimeSnapshot{
-			RuntimeID: id,
-			Kind:      runtimeKindString(rt.kind),
-			Version:   rt.version,
-			LastSeen:  rt.lastSeen,
+		live = append(live, liveState{
+			id: id, kind: runtimeKindString(rt.kind), version: rt.version, lastSeen: rt.lastSeen,
+			online: rt.deployCh != nil, cpuPercent: rt.cpuPercent, memoryBytes: rt.memoryBytes, flowCount: len(rt.flowStatuses),
 		})
+	}
+	deviceStore := s.deviceStore
+	s.mu.Unlock()
+
+	snaps := make([]RuntimeSnapshot, 0, len(live))
+	for _, l := range live {
+		snap := RuntimeSnapshot{
+			RuntimeID: l.id, Kind: l.kind, Version: l.version, LastSeen: l.lastSeen, Online: l.online, FlowCount: l.flowCount,
+		}
+		if l.online {
+			cpu, mem := l.cpuPercent, l.memoryBytes
+			snap.CPUPercent, snap.MemoryBytes = &cpu, &mem
+		}
+		if deviceStore != nil {
+			if info, err := deviceStore.DeviceInfo(ctx, l.id); err == nil {
+				snap.DisplayName, snap.Group, snap.Enrolled = info.DisplayName, info.GroupName, info.Enrolled
+			}
+		}
+		snaps = append(snaps, snap)
 	}
 	return snaps
 }

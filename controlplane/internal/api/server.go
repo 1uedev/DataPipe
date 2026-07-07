@@ -32,8 +32,10 @@ type rowScanner interface {
 // (Increment 3's deploy orchestration); implemented by
 // controlplane/internal/registry. defaultErrorFlow is the owning project's
 // ERR-120 fallback error-handler flow id (Increment 8), "" if none.
+// targetGroup is the flow's runtimeAssignment.group (Increment 9, UI-220),
+// "" for "every connected runtime".
 type Deployer interface {
-	DeployFlow(ctx context.Context, flowID string, version int64, flowJSON, defaultErrorFlow string) error
+	DeployFlow(ctx context.Context, flowID string, version int64, flowJSON, defaultErrorFlow, targetGroup string) error
 }
 
 // ExecutionCommander issues runtime-bound commands for triggered
@@ -45,18 +47,29 @@ type ExecutionCommander interface {
 	ReinjectDeadLetter(ctx context.Context, flowID, nodeID, port, datagramJSON string) error
 }
 
-// RuntimeInfo is the read-only fleet view (GET /runtimes).
+// RuntimeInfo is the read-only fleet view (GET /runtimes), combining live
+// registry state (kind/version/lastSeen/online/health) with admin-
+// configured fleet metadata (displayName/group/enrolled) — Increment 9,
+// EDGE-120 "inventory with health (online, CPU, memory, flow status,
+// versions)".
 type RuntimeInfo struct {
-	RuntimeID string    `json:"runtimeId"`
-	Kind      string    `json:"kind"`
-	Version   string    `json:"version"`
-	LastSeen  time.Time `json:"lastSeen"`
+	RuntimeID   string    `json:"runtimeId"`
+	Kind        string    `json:"kind"`
+	Version     string    `json:"version"`
+	LastSeen    time.Time `json:"lastSeen"`
+	Online      bool      `json:"online"`
+	CPUPercent  *float64  `json:"cpuPercent"`
+	MemoryBytes *int64    `json:"memoryBytes"`
+	FlowCount   int       `json:"flowCount"`
+	DisplayName *string   `json:"displayName"`
+	Group       *string   `json:"group"`
+	Enrolled    bool      `json:"enrolled"`
 }
 
 // RuntimeLister backs GET /runtimes; implemented by
 // controlplane/internal/registry.
 type RuntimeLister interface {
-	ListRuntimes() []RuntimeInfo
+	ListRuntimes(ctx context.Context) []RuntimeInfo
 }
 
 // Handlers implements every route in docs/api/openapi.yaml.
@@ -128,6 +141,13 @@ func (h *Handlers) Routes() http.Handler {
 	protected.HandleFunc("DELETE /credentials/{credentialId}", h.deleteCredential)
 
 	protected.HandleFunc("GET /runtimes", h.listRuntimes)
+	protected.HandleFunc("PATCH /runtimes/{runtimeId}", h.updateRuntime)
+	protected.HandleFunc("GET /runtime-groups", h.listRuntimeGroups)
+	protected.HandleFunc("POST /runtime-groups", h.createRuntimeGroup)
+	protected.HandleFunc("DELETE /runtime-groups/{name}", h.deleteRuntimeGroup)
+	protected.HandleFunc("GET /runtime-enroll-tokens", h.listEnrollTokens)
+	protected.HandleFunc("POST /runtime-enroll-tokens", h.createEnrollToken)
+	protected.HandleFunc("DELETE /runtime-enroll-tokens/{tokenId}", h.deleteEnrollToken)
 	protected.HandleFunc("GET /audit-log", h.listAuditLog)
 	protected.HandleFunc("GET /node-types", h.listNodeTypes)
 

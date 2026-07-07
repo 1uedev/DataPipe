@@ -17,6 +17,9 @@ import type {
   NodeType,
   PreviewResult,
   Project,
+  RuntimeEnrollToken,
+  RuntimeEnrollTokenCreated,
+  RuntimeGroup,
   RuntimeInfo,
   User,
 } from './types'
@@ -120,6 +123,39 @@ export function listCredentials(projectId: string) {
 
 export function listRuntimes() {
   return request<RuntimeInfo[]>('/runtimes')
+}
+
+// --- Increment 9: fleet management (EDGE-120/UI-220) ---
+
+export function updateRuntime(runtimeId: string, patch: { displayName?: string; group?: string | null }) {
+  return request<RuntimeInfo>(`/runtimes/${runtimeId}`, { method: 'PATCH', body: patch })
+}
+
+export function listRuntimeGroups() {
+  return request<RuntimeGroup[]>('/runtime-groups')
+}
+
+export function createRuntimeGroup(name: string, description?: string) {
+  return request<RuntimeGroup>('/runtime-groups', { method: 'POST', body: { name, description } })
+}
+
+export function deleteRuntimeGroup(name: string) {
+  return request<void>(`/runtime-groups/${encodeURIComponent(name)}`, { method: 'DELETE' })
+}
+
+export function listEnrollTokens() {
+  return request<RuntimeEnrollToken[]>('/runtime-enroll-tokens')
+}
+
+export function createEnrollToken(displayName?: string, group?: string) {
+  return request<RuntimeEnrollTokenCreated>('/runtime-enroll-tokens', {
+    method: 'POST',
+    body: { displayName, group },
+  })
+}
+
+export function deleteEnrollToken(tokenId: string) {
+  return request<void>(`/runtime-enroll-tokens/${tokenId}`, { method: 'DELETE' })
 }
 
 export function listNodeTypes() {

@@ -108,11 +108,13 @@ type DeployedFlow struct {
 	Version          int64
 	ContentJSON      string
 	DefaultErrorFlow string
+	TargetGroup      string
 }
 
 // ListDeployedFlows returns every flow that currently has a deployed
-// version, with its deployed content and owning project's ERR-120 default
-// error-handler flow id.
+// version, with its deployed content, owning project's ERR-120 default
+// error-handler flow id, and UI-220 runtime-group assignment (parsed out
+// of the content itself — runtimeAssignment isn't a separate column).
 func (s *Store) ListDeployedFlows(ctx context.Context) ([]DeployedFlow, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT f.id, fv.version, fv.content, p.default_error_flow
@@ -136,6 +138,9 @@ func (s *Store) ListDeployedFlows(ctx context.Context) ([]DeployedFlow, error) {
 		d.ContentJSON = content
 		if defaultErrorFlow.Valid {
 			d.DefaultErrorFlow = defaultErrorFlow.String
+		}
+		if ff, err := flow.Parse([]byte(content)); err == nil && ff.RuntimeAssignment != nil {
+			d.TargetGroup = ff.RuntimeAssignment.Group
 		}
 		out = append(out, d)
 	}
@@ -426,8 +431,12 @@ func (h *Handlers) deployFlow(w http.ResponseWriter, r *http.Request) {
 	if project.DefaultErrorFlow != nil {
 		defaultErrorFlow = *project.DefaultErrorFlow
 	}
+	targetGroup := ""
+	if ff.RuntimeAssignment != nil {
+		targetGroup = ff.RuntimeAssignment.Group
+	}
 
-	if err := h.deployer.DeployFlow(r.Context(), f.ID, version.Version, string(canonical), defaultErrorFlow); err != nil {
+	if err := h.deployer.DeployFlow(r.Context(), f.ID, version.Version, string(canonical), defaultErrorFlow, targetGroup); err != nil {
 		writeError(w, http.StatusConflict, "no runtime available to deploy to: "+err.Error())
 		return
 	}
@@ -539,8 +548,12 @@ func (h *Handlers) rollbackFlow(w http.ResponseWriter, r *http.Request) {
 	if project.DefaultErrorFlow != nil {
 		defaultErrorFlow = *project.DefaultErrorFlow
 	}
+	targetGroup := ""
+	if ff.RuntimeAssignment != nil {
+		targetGroup = ff.RuntimeAssignment.Group
+	}
 
-	if err := h.deployer.DeployFlow(r.Context(), f.ID, newVersion.Version, string(canonical), defaultErrorFlow); err != nil {
+	if err := h.deployer.DeployFlow(r.Context(), f.ID, newVersion.Version, string(canonical), defaultErrorFlow, targetGroup); err != nil {
 		writeError(w, http.StatusConflict, "no runtime available to deploy to: "+err.Error())
 		return
 	}

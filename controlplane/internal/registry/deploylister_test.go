@@ -57,6 +57,65 @@ func TestERR150_DeployStreamOpenPushesEveryCurrentlyDeployedFlow(t *testing.T) {
 	}
 }
 
+// TestEDGE120_DeployStreamOpenOnlyRePushesFlowsMatchingThisRuntimesGroup
+// proves group targeting (UI-220) also applies to the automatic
+// re-push-on-(re)connect path, not just a fresh REST deploy — otherwise a
+// runtime reconnecting after a crash would receive every group-targeted
+// flow in the system regardless of its own group.
+func TestEDGE120_DeployStreamOpenOnlyRePushesFlowsMatchingThisRuntimesGroup(t *testing.T) {
+	client, svc, cleanup := startTestServer(t)
+	defer cleanup()
+	svc.SetDeployedFlowsLister(&fakeDeployedFlowsLister{flows: []DeployedFlowInfo{
+		{FlowID: "flow-ungrouped", Version: 1, ContentJSON: `{}`},
+		{FlowID: "flow-fab2", Version: 1, ContentJSON: `{}`, TargetGroup: "edge-fab2"},
+		{FlowID: "flow-fab3", Version: 1, ContentJSON: `{}`, TargetGroup: "edge-fab3"},
+	}})
+	store := newFakeDeviceStore()
+	store.validTokens["tok"] = "edge-fab2"
+	svc.SetDeviceStore(store)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	resp, err := client.Register(ctx, &runtimev1.RegisterRequest{RuntimeId: "rt-edge", EnrollmentToken: "tok"})
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	stream, err := client.DeployStream(ctx, &runtimev1.DeployStreamRequest{RuntimeId: "rt-edge", SessionToken: resp.GetSessionToken()})
+	if err != nil {
+		t.Fatalf("DeployStream: %v", err)
+	}
+
+	seen := map[string]bool{}
+	for len(seen) < 2 {
+		cmd, err := stream.Recv()
+		if err != nil {
+			t.Fatalf("stream.Recv: %v", err)
+		}
+		seen[cmd.GetFlowId()] = true
+	}
+	if !seen["flow-ungrouped"] || !seen["flow-fab2"] {
+		t.Fatalf("seen = %v, want flow-ungrouped and flow-fab2", seen)
+	}
+
+	// Confirm flow-fab3 never arrives at all, not just "not among the
+	// first two" — race a short timeout against a third Recv.
+	recvCtx, recvCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer recvCancel()
+	done := make(chan string, 1)
+	go func() {
+		cmd, err := stream.Recv()
+		if err == nil {
+			done <- cmd.GetFlowId()
+		}
+	}()
+	select {
+	case flowID := <-done:
+		t.Fatalf("received an unexpected third flow %q, must not include flow-fab3 (different group)", flowID)
+	case <-recvCtx.Done():
+		// expected: nothing more arrived within the timeout
+	}
+}
+
 func TestERR150_DeployStreamOpenWithNoListerConfiguredStillWorks(t *testing.T) {
 	client, _, cleanup := startTestServer(t)
 	defer cleanup()

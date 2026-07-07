@@ -5,6 +5,7 @@ package flow
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -15,8 +16,14 @@ import (
 	"github.com/1uedev/DataPipe/engine/bus"
 	"github.com/1uedev/DataPipe/engine/datagram"
 	"github.com/1uedev/DataPipe/engine/internal/backoff"
+	"github.com/1uedev/DataPipe/engine/storeforward"
 	"github.com/1uedev/DataPipe/engine/topics"
 )
+
+// storeForwardDrainIdlePoll is how often a node's store-and-forward
+// drainer checks an empty queue (and the starting point for its retry
+// backoff on delivery failure — see storeforward.Drain).
+const storeForwardDrainIdlePoll = 500 * time.Millisecond
 
 // NodeMetrics are the per-node counters exposed for observability.
 type NodeMetrics struct {
@@ -79,6 +86,14 @@ type nodeRunner struct {
 	// without restarting this node. nil (e.g. a directly test-built
 	// runner) means "no error flow configured".
 	errorFlowTarget func() string
+
+	// sfQueue is this node's EDGE-130 store-and-forward durable queue, set
+	// only when errorPolicy.onError == "storeForward" and a data directory
+	// is configured (Deployment.dataDir); nil otherwise, in which case a
+	// "storeForward" policy degrades to "fail" rather than silently
+	// dropping data. startNode runs exactly one drain goroutine for it
+	// (see runStoreForwardDrain), regardless of node kind.
+	sfQueue *storeforward.Queue
 }
 
 // noopTracker is shared by every nodeRunner with no execTracker configured
@@ -306,10 +321,86 @@ func (r *nodeRunner) applyTerminalPolicy(ctx context.Context, policy ErrorPolicy
 	case "discard":
 		r.logger.Debug("node processing failed, discarding", "node", r.id, "error", nodeErr)
 		r.reportNode(in, port, attempt, start, nil, nodeErr, "discard")
+	case "storeForward":
+		r.storeForward(port, attempt, start, in, nodeErr)
 	default: // "fail"
 		r.logger.Error("node processing failed", "node", r.id, "error", nodeErr)
 		r.reportNode(in, port, attempt, start, nil, nodeErr, "fail")
 	}
+}
+
+// storeForwardEntry is what's actually persisted in a node's durable queue:
+// the datagram plus which input port it arrived on (needed by
+// MultiInputProcessor nodes, which share one queue across several ports).
+type storeForwardEntry struct {
+	Port     string            `json:"port"`
+	Datagram datagram.Datagram `json:"datagram"`
+}
+
+// storeForward implements EDGE-130's onError:"storeForward" policy: instead
+// of failing/discarding/dead-lettering, the datagram is durably queued to
+// local disk for the background drainer (startStoreForwardDrain) to keep
+// retrying until the remote destination is reachable again. If no queue is
+// available (no data directory configured, e.g. a directly test-built
+// runner) this degrades to the ordinary "fail" policy rather than silently
+// losing the datagram.
+func (r *nodeRunner) storeForward(port string, attempt int, start time.Time, in datagram.Datagram, nodeErr *NodeError) {
+	if r.sfQueue == nil {
+		r.logger.Error("storeForward configured but no durable queue available; treating as fail", "node", r.id, "error", nodeErr)
+		r.reportNode(in, port, attempt, start, nil, nodeErr, "fail")
+		return
+	}
+	data, err := json.Marshal(storeForwardEntry{Port: port, Datagram: in})
+	if err != nil {
+		r.logger.Error("storeForward: failed to marshal entry, dead-lettering instead", "node", r.id, "error", err)
+		r.reportNode(in, port, attempt, start, nil, nodeErr, "fail")
+		return
+	}
+	dropped, err := r.sfQueue.Enqueue(data, time.Now())
+	if err != nil {
+		r.logger.Error("storeForward: failed to enqueue durably, dead-lettering instead", "node", r.id, "error", err)
+		r.reportNode(in, port, attempt, start, nil, nodeErr, "fail")
+		return
+	}
+	if dropped > 0 {
+		r.logger.Warn("storeForward queue bounds exceeded, oldest queued entries dropped", "node", r.id, "dropped", dropped)
+	}
+	r.reportNode(in, port, attempt, start, nil, nodeErr, "storeForward")
+}
+
+// runStoreForwardDrain blocks, retrying the head of this node's durable
+// queue in order, until ctx is cancelled — call it in its own goroutine,
+// joined by the same WaitGroup as the node's ordinary receive loop(s) so a
+// hot-redeploy restart of this node (ENG-140) never opens a second,
+// independent Queue over the same on-disk directory while this one might
+// still be mid-delivery (startNode owns that sequencing via drainStop).
+// invoke is the node's own Process/ProcessPort call — delivery succeeding
+// here is exactly the node itself succeeding on a re-attempt, so a
+// successful drain dispatches outputs and reports success exactly like an
+// ordinary handle() call would. r.sfQueue == nil (no data directory
+// configured) makes this a no-op.
+func (r *nodeRunner) runStoreForwardDrain(ctx context.Context, invoke func(context.Context, string, datagram.Datagram) ([]PortDatagram, error)) {
+	if r.sfQueue == nil {
+		return
+	}
+	storeforward.Drain(ctx, r.sfQueue, func(payload []byte, _ time.Time) error {
+		var entry storeForwardEntry
+		if err := json.Unmarshal(payload, &entry); err != nil {
+			r.logger.Error("storeForward: dropping corrupt queued entry", "node", r.id, "error", err)
+			return nil // can't ever deliver this one; drop it rather than retry forever
+		}
+		start := time.Now()
+		results, err := invokeWithRecover(ctx, func(ctx context.Context, d datagram.Datagram) ([]PortDatagram, error) {
+			return invoke(ctx, entry.Port, d)
+		}, entry.Datagram)
+		if err != nil {
+			return err // still unreachable: leave queued, Drain will retry with backoff
+		}
+		r.metrics.Processed.Add(1)
+		r.dispatch(ctx, results)
+		r.reportNode(entry.Datagram, entry.Port, 1, start, results, nil, "")
+		return nil
+	}, storeForwardDrainIdlePoll)
 }
 
 // reportNode forwards one node's outcome to the attached Tracker (Increment

@@ -68,6 +68,34 @@ export interface RuntimeInfo {
   kind: 'server' | 'edge'
   version: string
   lastSeen: string
+  online: boolean
+  cpuPercent: number | null
+  memoryBytes: number | null
+  flowCount: number
+  displayName: string | null
+  group: string | null
+  enrolled: boolean
+}
+
+// --- Increment 9: fleet management (EDGE-120) ---
+
+export interface RuntimeGroup {
+  name: string
+  description: string
+  createdAt: string
+}
+
+export interface RuntimeEnrollToken {
+  id: string
+  displayName: string
+  group: string
+  createdAt: string
+  usedByRuntimeId: string
+  revoked: boolean
+}
+
+export interface RuntimeEnrollTokenCreated extends RuntimeEnrollToken {
+  token: string
 }
 
 export interface AuditEntry {
@@ -114,6 +142,7 @@ export interface FlowFileContent {
   description?: string
   mode: 'streaming' | 'triggered'
   disabled?: boolean
+  runtimeAssignment?: { group?: string } | null
   graph: FlowGraph
   layout?: FlowLayout
 }

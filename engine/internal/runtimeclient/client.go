@@ -24,6 +24,27 @@ const deployStreamRetryDelay = 2 * time.Second
 // "" if none is configured.
 type DeployHandler func(ctx context.Context, flowID string, version int64, flowJSON, defaultErrorFlow string)
 
+// FlowStatus is one deployed flow's coarse health, reported on every
+// Heartbeat (Increment 9, EDGE-120 "flow status").
+type FlowStatus struct {
+	FlowID string
+	Status string // "running" | "error"
+}
+
+// HealthSnapshot is this runtime's fleet health at one point in time
+// (Increment 9, EDGE-120 "inventory with health (online, CPU, memory, flow
+// status, versions)"), sampled fresh on every Heartbeat.
+type HealthSnapshot struct {
+	CPUPercent   float64
+	MemoryBytes  uint64
+	FlowStatuses []FlowStatus
+}
+
+// HealthProvider samples the current HealthSnapshot. May be nil to send
+// heartbeats with no health payload (kind, id, and liveness are still
+// tracked control-plane-side either way).
+type HealthProvider func() HealthSnapshot
+
 // Run dials addr and keeps the runtime registered until ctx is cancelled.
 // onRegistered is invoked (with the current registration state) every time
 // registration succeeds or is lost, so callers can drive a health endpoint;
@@ -34,8 +55,11 @@ type DeployHandler func(ctx context.Context, flowID string, version int64, flowJ
 // reference a connection will simply fail to resolve it. eventSink and
 // target may be nil to opt out of the execution/dead-letter channel
 // entirely (Increment 8, ENG-130/DBG-140/ERR-130) — nothing is tracked or
-// re-runnable in that case.
-func Run(ctx context.Context, addr, runtimeID, version string, onRegistered func(bool), onDeploy DeployHandler, debugSink *DebugSink, rb RingBufferSource, connResolver *ConnectionResolver, eventSink *EventSink, target DeploymentTarget) error {
+// re-runnable in that case. enrollmentToken authenticates this runtime as
+// a managed fleet device (Increment 9, EDGE-120/ARC-210) — "" for the
+// walking-skeleton no-token local/dev setup. healthProvider may be nil to
+// send heartbeats with no health payload.
+func Run(ctx context.Context, addr, runtimeID, version, enrollmentToken string, onRegistered func(bool), onDeploy DeployHandler, debugSink *DebugSink, rb RingBufferSource, connResolver *ConnectionResolver, eventSink *EventSink, target DeploymentTarget, healthProvider HealthProvider) error {
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return err
@@ -50,7 +74,7 @@ func Run(ctx context.Context, addr, runtimeID, version string, onRegistered func
 			return ctx.Err()
 		}
 
-		sessionToken, err := register(ctx, client, runtimeID, version)
+		sessionToken, err := register(ctx, client, runtimeID, version, enrollmentToken)
 		if err != nil {
 			onRegistered(false)
 			slog.Warn("runtime registration failed, retrying", "error", err)
@@ -77,7 +101,7 @@ func Run(ctx context.Context, addr, runtimeID, version string, onRegistered func
 			go eventChannelLoop(streamCtx, client, runtimeID, sessionToken, eventSink, target)
 		}
 
-		if err := heartbeatLoop(ctx, client, runtimeID, sessionToken); err != nil {
+		if err := heartbeatLoop(ctx, client, runtimeID, sessionToken, healthProvider); err != nil {
 			onRegistered(false)
 			slog.Warn("heartbeat loop ended, will re-register", "error", err)
 		}
@@ -85,11 +109,12 @@ func Run(ctx context.Context, addr, runtimeID, version string, onRegistered func
 	}
 }
 
-func register(ctx context.Context, client runtimev1.RuntimeRegistryServiceClient, runtimeID, version string) (string, error) {
+func register(ctx context.Context, client runtimev1.RuntimeRegistryServiceClient, runtimeID, version, enrollmentToken string) (string, error) {
 	resp, err := client.Register(ctx, &runtimev1.RegisterRequest{
-		RuntimeId: runtimeID,
-		Kind:      runtimev1.RuntimeKind_RUNTIME_KIND_SERVER,
-		Version:   version,
+		RuntimeId:       runtimeID,
+		Kind:            runtimev1.RuntimeKind_RUNTIME_KIND_SERVER,
+		Version:         version,
+		EnrollmentToken: enrollmentToken,
 	})
 	if err != nil {
 		return "", err
@@ -97,7 +122,7 @@ func register(ctx context.Context, client runtimev1.RuntimeRegistryServiceClient
 	return resp.GetSessionToken(), nil
 }
 
-func heartbeatLoop(ctx context.Context, client runtimev1.RuntimeRegistryServiceClient, runtimeID, sessionToken string) error {
+func heartbeatLoop(ctx context.Context, client runtimev1.RuntimeRegistryServiceClient, runtimeID, sessionToken string, healthProvider HealthProvider) error {
 	ticker := time.NewTicker(heartbeatInterval)
 	defer ticker.Stop()
 
@@ -106,10 +131,19 @@ func heartbeatLoop(ctx context.Context, client runtimev1.RuntimeRegistryServiceC
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			if _, err := client.Heartbeat(ctx, &runtimev1.HeartbeatRequest{
+			req := &runtimev1.HeartbeatRequest{
 				RuntimeId:    runtimeID,
 				SessionToken: sessionToken,
-			}); err != nil {
+			}
+			if healthProvider != nil {
+				snap := healthProvider()
+				req.CpuPercent = snap.CPUPercent
+				req.MemoryBytes = snap.MemoryBytes
+				for _, fs := range snap.FlowStatuses {
+					req.FlowStatuses = append(req.FlowStatuses, &runtimev1.FlowStatus{FlowId: fs.FlowID, Status: fs.Status})
+				}
+			}
+			if _, err := client.Heartbeat(ctx, req); err != nil {
 				return err
 			}
 		}

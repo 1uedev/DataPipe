@@ -1,0 +1,40 @@
+{
+  "formatVersion": 1,
+  "kind": "flow",
+  "id": "flow_edge_sensor_storeforward_demo",
+  "name": "Edge sensor -> central API (store-and-forward)",
+  "description": "Development-Plan Increment 9 demo: an MQTT sensor reading is forwarded to a central HTTP endpoint; onError:\"storeForward\" (EDGE-130) durably queues readings on local disk whenever that central connection is unreachable and drains them, in order, once it recovers — so the edge device keeps accepting sensor data through a network outage with zero loss. runtimeAssignment.group targets this flow at the \"edge-fab2\" fleet group (UI-220/EDGE-120) rather than the central server runtime. Requires a 'sensor-mqtt' connection (type mqtt) in the target project before deploy.",
+  "mode": "streaming",
+  "runtimeAssignment": { "group": "edge-fab2" },
+  "graph": {
+    "nodes": [
+      {
+        "id": "n1",
+        "type": "mqtt-in",
+        "typeVersion": 1,
+        "name": "Sensor readings",
+        "connection": "sensor-mqtt",
+        "config": { "topic": "sensors/+/temperature", "qos": 0 }
+      },
+      {
+        "id": "n2",
+        "type": "http-request",
+        "typeVersion": 1,
+        "name": "Forward to central API",
+        "config": {
+          "method": "POST",
+          "url": "https://central.example.invalid/api/readings",
+          "bodyFrom": "payload",
+          "timeoutMs": 5000
+        },
+        "errorPolicy": {
+          "onError": "storeForward",
+          "storeForward": { "maxSizeMb": 64, "maxAgeSec": 86400 }
+        }
+      }
+    ],
+    "wires": [
+      { "id": "w1", "from": { "node": "n1", "port": "out" }, "to": { "node": "n2", "port": "in" } }
+    ]
+  }
+}

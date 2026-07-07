@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,6 +22,7 @@ import (
 	"github.com/1uedev/DataPipe/engine/bus"
 	"github.com/1uedev/DataPipe/engine/ctxstore"
 	"github.com/1uedev/DataPipe/engine/datagram"
+	"github.com/1uedev/DataPipe/engine/storeforward"
 )
 
 // DefaultWireCapacity bounds every inbox queue (ENG-150: "max queue sizes").
@@ -97,6 +99,13 @@ type Deployment struct {
 	// of its own. Set by the control plane at deploy time (Deployment has
 	// no notion of "project" itself).
 	defaultErrorFlow string
+
+	// dataDir is where onError:"storeForward" (EDGE-130) durable per-node
+	// queues live on disk, e.g. "<dataDir>/storeforward/<flowID>/<nodeID>".
+	// "" (the default) disables durable queuing entirely — a node
+	// configured with storeForward then degrades to "fail" instead of
+	// silently dropping data (see nodeRunner.storeForward).
+	dataDir string
 }
 
 // NewDeployment creates an empty deployment ready for Deploy. A nil logger uses
@@ -147,6 +156,25 @@ func (g *Deployment) SetConnectionResolver(resolver ConnectionResolver) {
 		resolver = NoopConnectionResolver
 	}
 	g.connResolver = resolver
+}
+
+// FlowID returns the currently deployed flow's id, or "" if none has been
+// deployed yet. Exposed for fleet health reporting (Increment 9, EDGE-120
+// "flow status") — today's engine reconciles one flow per Deployment (see
+// TODO.md), so this is always at most a single flow.
+func (g *Deployment) FlowID() string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.flowID
+}
+
+// SetDataDir sets the base directory for onError:"storeForward" durable
+// queues (Increment 9, EDGE-130). Must be called before Deploy for it to
+// take effect on that deploy's nodes; "" disables durable queuing.
+func (g *Deployment) SetDataDir(dir string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.dataDir = dir
 }
 
 // SetExecutionSink attaches (or detaches, with nil) the triggered-execution
@@ -559,6 +587,30 @@ func (g *Deployment) startNode(ctx context.Context, n *Node, info NodeTypeInfo, 
 	nodeCtx = WithConnection(nodeCtx, g.connResolver, n.Connection)
 	nodeCtx = WithContextStore(nodeCtx, g.ctxStore)
 	metrics := &NodeMetrics{}
+
+	// EDGE-130 store-and-forward: only meaningful for a Processor with
+	// onError:"storeForward" configured, and only if a data directory is
+	// set — g.dataDir/g.dataDir "" degrades to nil (nodeRunner.storeForward
+	// falls back to "fail" rather than losing data silently).
+	var sfQueue *storeforward.Queue
+	if n.ErrorPolicy != nil && n.ErrorPolicy.OnError == "storeForward" && g.dataDir != "" {
+		var maxSizeBytes int64
+		var maxAge time.Duration
+		if sf := n.ErrorPolicy.StoreForward; sf != nil {
+			maxSizeBytes = int64(sf.MaxSizeMb) * 1024 * 1024
+			maxAge = time.Duration(sf.MaxAgeSec) * time.Second
+		}
+		dir := filepath.Join(g.dataDir, "storeforward", g.flowID, n.ID)
+		q, err := storeforward.Open(dir, maxSizeBytes, maxAge)
+		if err != nil {
+			cancel()
+			return fmt.Errorf("node %q: opening store-forward queue: %w", n.ID, err)
+		}
+		sfQueue = q
+	} else if n.ErrorPolicy != nil && n.ErrorPolicy.OnError == "storeForward" {
+		g.logger.Warn("node configured with onError:storeForward but no data directory set; will fall back to fail", "node", n.ID)
+	}
+
 	runner := &nodeRunner{
 		id:              n.ID,
 		flowID:          g.flowID,
@@ -574,6 +626,7 @@ func (g *Deployment) startNode(ctx context.Context, n *Node, info NodeTypeInfo, 
 		execTracker:     g.execTracker,
 		deadLetterSink:  g.deadLetterSink,
 		errorFlowTarget: g.ErrorFlowTarget,
+		sfQueue:         sfQueue,
 	}
 
 	done := make(chan struct{})
@@ -594,8 +647,17 @@ func (g *Deployment) startNode(ctx context.Context, n *Node, info NodeTypeInfo, 
 			cancel()
 			return fmt.Errorf("node type %q declares Kind=Processor but no input ports", n.Type)
 		}
+		var wg sync.WaitGroup
 		if mproc, ok := instance.(MultiInputProcessor); ok {
-			var wg sync.WaitGroup
+			if sfQueue != nil {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					runner.runStoreForwardDrain(nodeCtx, func(ctx context.Context, port string, in datagram.Datagram) ([]PortDatagram, error) {
+						return mproc.ProcessPort(ctx, port, in)
+					})
+				}()
+			}
 			for _, port := range info.Inputs {
 				inbox := g.inboxes[nodePort{n.ID, port}]
 				wg.Add(1)
@@ -604,22 +666,32 @@ func (g *Deployment) startNode(ctx context.Context, n *Node, info NodeTypeInfo, 
 					runner.runMultiProcessor(nodeCtx, mproc, port, inbox)
 				}(port, inbox)
 			}
-			go func() {
-				defer close(done)
-				wg.Wait()
-			}()
 		} else {
 			proc, ok := instance.(Processor)
 			if !ok {
 				cancel()
 				return fmt.Errorf("node type %q factory did not return a Processor", n.Type)
 			}
+			if sfQueue != nil {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					runner.runStoreForwardDrain(nodeCtx, func(ctx context.Context, _ string, in datagram.Datagram) ([]PortDatagram, error) {
+						return proc.Process(ctx, in)
+					})
+				}()
+			}
 			inbox := g.inboxes[nodePort{n.ID, info.Inputs[0]}]
+			wg.Add(1)
 			go func() {
-				defer close(done)
+				defer wg.Done()
 				runner.runProcessor(nodeCtx, proc, inbox)
 			}()
 		}
+		go func() {
+			defer close(done)
+			wg.Wait()
+		}()
 	}
 
 	g.nodes[n.ID] = &runningNode{cancel: cancel, done: done, metrics: metrics, fingerprint: fingerprint, startCount: priorStartCount + 1}

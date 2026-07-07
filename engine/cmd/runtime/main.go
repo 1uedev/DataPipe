@@ -17,6 +17,7 @@ import (
 
 	"github.com/1uedev/DataPipe/engine/flow"
 	"github.com/1uedev/DataPipe/engine/internal/health"
+	"github.com/1uedev/DataPipe/engine/internal/procstats"
 	"github.com/1uedev/DataPipe/engine/internal/runtimeclient"
 	"github.com/1uedev/DataPipe/engine/webhook"
 
@@ -61,10 +62,25 @@ func main() {
 	webhookAddr := envOr("RUNTIME_WEBHOOK_ADDR", ":8090")
 	controlPlaneAddr := envOr("CONTROLPLANE_GRPC_ADDR", "localhost:9090")
 	runtimeID := envOr("RUNTIME_ID", uuid.NewString())
+	enrollmentToken := envOr("RUNTIME_ENROLL_TOKEN", "")
+	dataDir := envOr("RUNTIME_DATA_DIR", "./data")
 
 	healthSrv := health.NewServer()
 	deployment := flow.NewDeployment(slog.Default())
 	defer deployment.Stop()
+	deployment.SetDataDir(dataDir)
+
+	cpuSampler := procstats.NewSampler()
+	healthProvider := func() runtimeclient.HealthSnapshot {
+		snap := runtimeclient.HealthSnapshot{
+			CPUPercent:  cpuSampler.CPUPercent(),
+			MemoryBytes: procstats.MemoryBytes(),
+		}
+		if id := deployment.FlowID(); id != "" {
+			snap.FlowStatuses = []runtimeclient.FlowStatus{{FlowID: id, Status: "running"}}
+		}
+		return snap
+	}
 
 	debugSink := runtimeclient.NewDebugSink()
 	deployment.SetDebugSink(debugSink)
@@ -97,7 +113,7 @@ func main() {
 	}()
 
 	go func() {
-		err := runtimeclient.Run(ctx, controlPlaneAddr, runtimeID, version, healthSrv.SetReady, applyDeploy(deployment), debugSink, deployment, connResolver, eventSink, deployment)
+		err := runtimeclient.Run(ctx, controlPlaneAddr, runtimeID, version, enrollmentToken, healthSrv.SetReady, applyDeploy(deployment), debugSink, deployment, connResolver, eventSink, deployment, healthProvider)
 		if err != nil && ctx.Err() == nil {
 			slog.Error("runtime client stopped unexpectedly", "error", err)
 		}

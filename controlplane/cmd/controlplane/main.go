@@ -93,6 +93,7 @@ func main() {
 	reg.SetConnectionResolver(connectionResolverAdapter{api.NewConnectionResolver(apiStore, vault)})
 	reg.SetExecutionStore(executionStoreAdapter{apiStore})
 	reg.SetDeployedFlowsLister(deployedFlowsListerAdapter{apiStore})
+	reg.SetDeviceStore(deviceStoreAdapter{apiStore})
 
 	if err := bootstrapAdmin(ctx, authStore); err != nil {
 		slog.Error("failed to bootstrap admin user", "error", err)
@@ -192,13 +193,53 @@ func bootstrapAdmin(ctx context.Context, authStore *auth.Store) error {
 // on the api package's types.
 type runtimeLister struct{ reg *registry.Service }
 
-func (a runtimeLister) ListRuntimes() []api.RuntimeInfo {
-	snaps := a.reg.ListRuntimes()
+func (a runtimeLister) ListRuntimes(ctx context.Context) []api.RuntimeInfo {
+	snaps := a.reg.ListRuntimes(ctx)
 	out := make([]api.RuntimeInfo, len(snaps))
 	for i, s := range snaps {
-		out[i] = api.RuntimeInfo{RuntimeID: s.RuntimeID, Kind: s.Kind, Version: s.Version, LastSeen: s.LastSeen}
+		info := api.RuntimeInfo{
+			RuntimeID: s.RuntimeID, Kind: s.Kind, Version: s.Version, LastSeen: s.LastSeen,
+			Online: s.Online, FlowCount: s.FlowCount, Enrolled: s.Enrolled,
+		}
+		if s.CPUPercent != nil {
+			info.CPUPercent = s.CPUPercent
+		}
+		if s.MemoryBytes != nil {
+			mem := int64(*s.MemoryBytes)
+			info.MemoryBytes = &mem
+		}
+		if s.DisplayName != "" {
+			info.DisplayName = &s.DisplayName
+		}
+		if s.Group != "" {
+			info.Group = &s.Group
+		}
+		out[i] = info
 	}
 	return out
+}
+
+// deviceStoreAdapter adapts api.Store to registry.DeviceStore (Increment
+// 9, EDGE-120/ARC-210), the same no-lower-package-depends-on-a-higher-one
+// pattern as the adapters above (DeviceInfo is a distinct named struct in
+// each package, so — unlike api.ExecutionCommander — this needs a real
+// adapter, not direct satisfaction).
+type deviceStoreAdapter struct{ store *api.Store }
+
+func (a deviceStoreAdapter) Authenticate(ctx context.Context, runtimeID, kind, enrollmentToken string) error {
+	return a.store.Authenticate(ctx, runtimeID, kind, enrollmentToken)
+}
+
+func (a deviceStoreAdapter) GroupOf(ctx context.Context, runtimeID string) (string, error) {
+	return a.store.GroupOf(ctx, runtimeID)
+}
+
+func (a deviceStoreAdapter) DeviceInfo(ctx context.Context, runtimeID string) (registry.DeviceInfo, error) {
+	info, err := a.store.DeviceInfo(ctx, runtimeID)
+	if err != nil {
+		return registry.DeviceInfo{}, err
+	}
+	return registry.DeviceInfo{Kind: info.Kind, DisplayName: info.DisplayName, GroupName: info.GroupName, Enrolled: info.Enrolled}, nil
 }
 
 // connectionResolverAdapter adapts api.ConnectionResolver's own
@@ -251,7 +292,7 @@ func (a deployedFlowsListerAdapter) ListDeployedFlows(ctx context.Context) ([]re
 	}
 	out := make([]registry.DeployedFlowInfo, len(flows))
 	for i, f := range flows {
-		out[i] = registry.DeployedFlowInfo{FlowID: f.FlowID, Version: f.Version, ContentJSON: f.ContentJSON, DefaultErrorFlow: f.DefaultErrorFlow}
+		out[i] = registry.DeployedFlowInfo{FlowID: f.FlowID, Version: f.Version, ContentJSON: f.ContentJSON, DefaultErrorFlow: f.DefaultErrorFlow, TargetGroup: f.TargetGroup}
 	}
 	return out, nil
 }

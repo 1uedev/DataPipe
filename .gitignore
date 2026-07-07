@@ -9,3 +9,5 @@ bin/
 /datapipe
 /engine/runtime
 /controlplane/controlplane
+/engine/data/
+/engine/data-*/

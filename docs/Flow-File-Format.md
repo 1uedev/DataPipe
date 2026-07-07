@@ -53,8 +53,9 @@ This is the core contract between editor, control plane, and runtime. Implement 
           ]
         },
         "errorPolicy": {               // ERR-100, uniform on every node
-          "onError": "errorPort",      // fail | retry | errorPort | discard
-          "retry": { "max": 3, "backoffMs": 1000, "maxBackoffMs": 30000, "jitter": true }
+          "onError": "errorPort",      // fail | retry | errorPort | discard | storeForward
+          "retry": { "max": 3, "backoffMs": 1000, "maxBackoffMs": 30000, "jitter": true },
+          "storeForward": { "maxSizeMb": 64, "maxAgeSec": 3600 }   // EDGE-130, onError:"storeForward" only
         },
         "overflow": "block"            // BUS-110 per-input policy: block | dropOldest | dropNewest | sample:n
       },
@@ -114,6 +115,14 @@ Every flow has an implicit per-flow dead-letter destination, durable and browsab
 ### Flow-level error handling (ERR-120)
 
 When a node's error is "unhandled" — its `errorPolicy.onError` resolves to `"fail"` (not caught by an `errorPort` wire or a try/catch scope, PROC-370/ERR-110) — the runtime builds the same error datagram shape ERR-100's `errorPort` policy would (original datagram + error object) and publishes it for delivery to a flow-level error handler: the flow's own `settings.errorFlow` if set, otherwise the owning project's default error-handler flow (`defaultErrorFlow`, a project-level setting — not part of any individual flow file). The designated error-handler flow is an ordinary triggered flow whose entry node is `error-trigger`, configured with the flow id (or `"*"` for the project-wide default handler) whose errors it receives.
+
+### Store-and-forward (EDGE-130)
+
+`errorPolicy.onError: "storeForward"` is a fifth per-node error policy, meant for a node writing to a **remote** destination (an MQTT/SQL sink pointed at a central broker/database, a `bus-out` link crossing to another runtime) that an edge runtime may lose reachability to for extended periods while still running fine locally. Unlike `"retry"` (bounded attempts with capped backoff, then falls through to fail/discard/errorPort) `"storeForward"` never gives up: a datagram the node's `Process` call fails to deliver is appended to a size- and time-bounded durable queue on local disk (`storeForward.maxSizeMb`/`maxAgeSec`; oldest entries are dropped once the queue is full — BUS-110's "nothing buffers unboundedly" applies here too, drops are counted) and a background drainer keeps retrying the *same* node call, in original order, preserving each datagram's original `header.timestamp`, until the destination is reachable again — at which point the whole backlog drains automatically, with no operator action, no redeploy, and no lost data as long as the queue's bounds weren't exceeded. This is what lets an edge flow "run autonomously without control-plane connection" (EDGE-130): the queue lives entirely in the runtime process and needs no control-plane round trip to operate.
+
+### Runtime assignment and fleet targeting (UI-220/EDGE-120)
+
+`runtimeAssignment.group` names a **runtime group** (fleet management, control-plane-side, not part of any flow file's own identity) that this flow should be deployed to; `null`/absent means "every currently connected runtime with no more specific reason to exclude it" (today: every runtime not exclusively reserved by group targeting elsewhere — see the control plane's fleet REST surface for group CRUD and device⇄group assignment). A flow with a group assignment is only ever pushed to runtimes whose enrolled device record currently belongs to that group; a runtime's own group membership is fleet configuration, never stored in the flow file. **Caveat**: `engine/flow.Deployment` still reconciles one `*FlowFile` per `Deploy` call with no concept of "which flow" beyond the last one applied (tracked in TODO.md) — group targeting controls *which runtimes* a given flow reaches, but a single runtime still only runs one deployed flow at a time until that gap closes.
 
 ## 3. Subflow file (`kind: "subflow"`)
 

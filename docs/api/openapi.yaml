@@ -474,7 +474,10 @@ paths:
 
   /runtimes:
     get:
-      summary: List currently registered runtimes (read-only fleet view)
+      summary: >
+        List currently registered runtimes (Increment 9 fleet inventory):
+        online/health/group/enrollment status alongside the basic identity
+        fields from earlier increments.
       responses:
         "200":
           description: OK
@@ -483,6 +486,124 @@ paths:
               schema:
                 type: array
                 items: { $ref: "#/components/schemas/Runtime" }
+
+  /runtimes/{runtimeId}:
+    parameters:
+      - name: runtimeId
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      summary: Rename a runtime or (re)assign its fleet group (System Admin, EDGE-120/UI-220)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                displayName: { type: string }
+                group: { type: string, nullable: true, description: "Runtime group name, or null to unassign" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Runtime" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { description: Unknown runtime }
+
+  /runtime-groups:
+    get:
+      summary: List fleet runtime groups (EDGE-120)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/RuntimeGroup" }
+    post:
+      summary: Create a runtime group (System Admin)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                description: { type: string }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RuntimeGroup" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /runtime-groups/{name}:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      summary: Delete a runtime group (System Admin); member devices become unassigned
+      responses:
+        "204": { description: Deleted }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /runtime-enroll-tokens:
+    get:
+      summary: List enrollment tokens (System Admin); never returns the plaintext token again
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/RuntimeEnrollToken" }
+    post:
+      summary: >
+        Issue a new enrollment token (System Admin, EDGE-120/ARC-210
+        per-device credential): the plaintext token is returned exactly
+        once, here, in the response — only its hash is ever stored.
+        Configure a runtime with `RUNTIME_ENROLL_TOKEN` to have it
+        authenticate as a managed fleet device on every Register call.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                displayName: { type: string }
+                group: { type: string, description: "Runtime group new devices using this token are enrolled into" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/RuntimeEnrollToken"
+                  - type: object
+                    properties:
+                      token: { type: string, description: "Plaintext — shown once" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /runtime-enroll-tokens/{tokenId}:
+    parameters:
+      - name: tokenId
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      summary: Revoke an enrollment token (System Admin); already-enrolled devices are unaffected
+      responses:
+        "204": { description: Deleted }
+        "403": { $ref: "#/components/responses/Forbidden" }
 
   /audit-log:
     get:
@@ -927,6 +1048,31 @@ components:
         kind: { type: string, enum: [server, edge] }
         version: { type: string }
         lastSeen: { type: string, format: date-time }
+        online: { type: boolean, description: "Currently connected (has an open DeployStream)" }
+        cpuPercent: { type: number, nullable: true }
+        memoryBytes: { type: integer, format: int64, nullable: true }
+        flowCount: { type: integer, description: "Number of flows the runtime last reported as deployed" }
+        displayName: { type: string, nullable: true }
+        group: { type: string, nullable: true, description: "Fleet runtime group name, or null if unassigned" }
+        enrolled: { type: boolean, description: "True if this runtime was registered with a valid enrollment token" }
+
+    RuntimeGroup:
+      type: object
+      properties:
+        name: { type: string }
+        description: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    RuntimeEnrollToken:
+      type: object
+      description: Never carries the plaintext token except in the POST response that creates it.
+      properties:
+        id: { type: string }
+        displayName: { type: string, nullable: true }
+        group: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+        usedByRuntimeId: { type: string, nullable: true }
+        revoked: { type: boolean }
 
     AuditEntry:
       type: object

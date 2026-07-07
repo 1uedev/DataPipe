@@ -13,9 +13,14 @@ export default function Layout() {
   return (
     <div className="flex min-h-screen flex-col">
       <header className="flex items-center justify-between border-b border-(--color-border) px-4 py-2">
-        <Link to="/projects" className="text-sm font-semibold">
-          {t('app.title')}
-        </Link>
+        <div className="flex items-center gap-4">
+          <Link to="/projects" className="text-sm font-semibold">
+            {t('app.title')}
+          </Link>
+          <Link to="/fleet" className="text-sm text-(--color-text-muted) hover:text-(--color-text)">
+            {t('fleet.title')}
+          </Link>
+        </div>
         <div className="flex items-center gap-3 text-sm">
           <select
             aria-label={t('app.language')}

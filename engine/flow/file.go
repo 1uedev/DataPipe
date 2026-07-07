@@ -86,9 +86,10 @@ type Node struct {
 
 // ErrorPolicy is ERR-100's uniform per-node error handling.
 type ErrorPolicy struct {
-	// OnError is "fail" | "retry" | "errorPort" | "discard".
-	OnError string       `json:"onError,omitempty"`
-	Retry   *RetryPolicy `json:"retry,omitempty"`
+	// OnError is "fail" | "retry" | "errorPort" | "discard" | "storeForward".
+	OnError      string              `json:"onError,omitempty"`
+	Retry        *RetryPolicy        `json:"retry,omitempty"`
+	StoreForward *StoreForwardPolicy `json:"storeForward,omitempty"`
 }
 
 // RetryPolicy configures the "retry" OnError mode.
@@ -97,6 +98,14 @@ type RetryPolicy struct {
 	BackoffMs    int  `json:"backoffMs,omitempty"`
 	MaxBackoffMs int  `json:"maxBackoffMs,omitempty"`
 	Jitter       bool `json:"jitter,omitempty"`
+}
+
+// StoreForwardPolicy configures the "storeForward" OnError mode (EDGE-130):
+// a size- and time-bounded durable on-disk queue, drained in the background
+// until delivery succeeds. Zero means unbounded on that dimension.
+type StoreForwardPolicy struct {
+	MaxSizeMb int `json:"maxSizeMb,omitempty"`
+	MaxAgeSec int `json:"maxAgeSec,omitempty"`
 }
 
 // Wire connects one node's output port to another node's input port.

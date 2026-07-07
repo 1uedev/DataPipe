@@ -65,7 +65,7 @@ type deployCall struct {
 
 var errFakeDeployUnavailable = errors.New("no runtime connected (test double)")
 
-func (f *fakeDeployer) DeployFlow(ctx context.Context, flowID string, version int64, flowJSON, defaultErrorFlow string) error {
+func (f *fakeDeployer) DeployFlow(ctx context.Context, flowID string, version int64, flowJSON, defaultErrorFlow, targetGroup string) error {
 	if f.fail {
 		return errFakeDeployUnavailable
 	}
@@ -75,7 +75,7 @@ func (f *fakeDeployer) DeployFlow(ctx context.Context, flowID string, version in
 
 type fakeRuntimeLister struct{ runtimes []RuntimeInfo }
 
-func (f *fakeRuntimeLister) ListRuntimes() []RuntimeInfo { return f.runtimes }
+func (f *fakeRuntimeLister) ListRuntimes(ctx context.Context) []RuntimeInfo { return f.runtimes }
 
 // fakeCommander is the ExecutionCommander test double (Increment 8): a
 // nil *fakeCommander (typed nil, not untyped nil) is a valid, deliberately
