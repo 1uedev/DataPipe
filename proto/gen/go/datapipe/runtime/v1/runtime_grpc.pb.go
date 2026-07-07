@@ -28,6 +28,7 @@ const (
 	RuntimeRegistryService_DeployStream_FullMethodName      = "/datapipe.runtime.v1.RuntimeRegistryService/DeployStream"
 	RuntimeRegistryService_DebugChannel_FullMethodName      = "/datapipe.runtime.v1.RuntimeRegistryService/DebugChannel"
 	RuntimeRegistryService_ResolveConnection_FullMethodName = "/datapipe.runtime.v1.RuntimeRegistryService/ResolveConnection"
+	RuntimeRegistryService_EventChannel_FullMethodName      = "/datapipe.runtime.v1.RuntimeRegistryService/EventChannel"
 )
 
 // RuntimeRegistryServiceClient is the client API for RuntimeRegistryService service.
@@ -58,6 +59,15 @@ type RuntimeRegistryServiceClient interface {
 	// sent here, to the runtime that needs it to actually connect, never
 	// embedded in a deploy push or any flow export.
 	ResolveConnection(ctx context.Context, in *ResolveConnectionRequest, opts ...grpc.CallOption) (*ResolveConnectionResponse, error)
+	// EventChannel is opened by the runtime once, after Register, and kept
+	// open for the runtime's lifetime (Increment 8, ENG-130/DBG-140/ERR-130):
+	// the runtime durably reports every triggered-execution lifecycle event
+	// and every dead-lettered datagram; the control plane persists them and
+	// pushes re-run/cancel/re-inject commands down the same stream. Unlike
+	// DebugChannel this is never sampled or rate-limited (DBG-140 "every
+	// execution recorded") and is not gated by a subscribe/unsubscribe
+	// handshake — the control plane always wants every triggered-flow event.
+	EventChannel(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[EventChannelRequest, EventChannelResponse], error)
 }
 
 type runtimeRegistryServiceClient struct {
@@ -130,6 +140,19 @@ func (c *runtimeRegistryServiceClient) ResolveConnection(ctx context.Context, in
 	return out, nil
 }
 
+func (c *runtimeRegistryServiceClient) EventChannel(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[EventChannelRequest, EventChannelResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &RuntimeRegistryService_ServiceDesc.Streams[2], RuntimeRegistryService_EventChannel_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[EventChannelRequest, EventChannelResponse]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type RuntimeRegistryService_EventChannelClient = grpc.BidiStreamingClient[EventChannelRequest, EventChannelResponse]
+
 // RuntimeRegistryServiceServer is the server API for RuntimeRegistryService service.
 // All implementations must embed UnimplementedRuntimeRegistryServiceServer
 // for forward compatibility.
@@ -158,6 +181,15 @@ type RuntimeRegistryServiceServer interface {
 	// sent here, to the runtime that needs it to actually connect, never
 	// embedded in a deploy push or any flow export.
 	ResolveConnection(context.Context, *ResolveConnectionRequest) (*ResolveConnectionResponse, error)
+	// EventChannel is opened by the runtime once, after Register, and kept
+	// open for the runtime's lifetime (Increment 8, ENG-130/DBG-140/ERR-130):
+	// the runtime durably reports every triggered-execution lifecycle event
+	// and every dead-lettered datagram; the control plane persists them and
+	// pushes re-run/cancel/re-inject commands down the same stream. Unlike
+	// DebugChannel this is never sampled or rate-limited (DBG-140 "every
+	// execution recorded") and is not gated by a subscribe/unsubscribe
+	// handshake — the control plane always wants every triggered-flow event.
+	EventChannel(grpc.BidiStreamingServer[EventChannelRequest, EventChannelResponse]) error
 	mustEmbedUnimplementedRuntimeRegistryServiceServer()
 }
 
@@ -182,6 +214,9 @@ func (UnimplementedRuntimeRegistryServiceServer) DebugChannel(grpc.BidiStreaming
 }
 func (UnimplementedRuntimeRegistryServiceServer) ResolveConnection(context.Context, *ResolveConnectionRequest) (*ResolveConnectionResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ResolveConnection not implemented")
+}
+func (UnimplementedRuntimeRegistryServiceServer) EventChannel(grpc.BidiStreamingServer[EventChannelRequest, EventChannelResponse]) error {
+	return status.Error(codes.Unimplemented, "method EventChannel not implemented")
 }
 func (UnimplementedRuntimeRegistryServiceServer) mustEmbedUnimplementedRuntimeRegistryServiceServer() {
 }
@@ -277,6 +312,13 @@ func _RuntimeRegistryService_ResolveConnection_Handler(srv interface{}, ctx cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RuntimeRegistryService_EventChannel_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(RuntimeRegistryServiceServer).EventChannel(&grpc.GenericServerStream[EventChannelRequest, EventChannelResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type RuntimeRegistryService_EventChannelServer = grpc.BidiStreamingServer[EventChannelRequest, EventChannelResponse]
+
 // RuntimeRegistryService_ServiceDesc is the grpc.ServiceDesc for RuntimeRegistryService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -306,6 +348,12 @@ var RuntimeRegistryService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "DebugChannel",
 			Handler:       _RuntimeRegistryService_DebugChannel_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
+		},
+		{
+			StreamName:    "EventChannel",
+			Handler:       _RuntimeRegistryService_EventChannel_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},

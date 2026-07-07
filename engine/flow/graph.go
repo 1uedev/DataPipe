@@ -79,6 +79,24 @@ type Deployment struct {
 	// MemoryStore so a runtime with no durable backend configured still
 	// works (state just doesn't survive a runtime restart).
 	ctxStore ctxstore.Store
+
+	// Triggered-execution tracking (Increment 8, ENG-130/DBG-140). execSink
+	// is the attached reporter (default Noop); execTracker enforces
+	// concurrency/timeout and is (re)built from the deployed flow's
+	// settings the first time Deploy runs, or whenever no execution is
+	// currently in flight — reconfiguring a live tracker mid-execution
+	// would risk losing in-progress accounting, so a later settings change
+	// while executions are active is applied on the next idle deploy
+	// rather than immediately (documented limitation).
+	execSink       ExecutionSink
+	execTracker    *Tracker
+	deadLetterSink DeadLetterSink
+	flowSettings   Settings
+	// defaultErrorFlow is the owning project's ERR-120 fallback error
+	// handler flow id, used when the deployed flow has no settings.errorFlow
+	// of its own. Set by the control plane at deploy time (Deployment has
+	// no notion of "project" itself).
+	defaultErrorFlow string
 }
 
 // NewDeployment creates an empty deployment ready for Deploy. A nil logger uses
@@ -88,17 +106,20 @@ func NewDeployment(logger *slog.Logger) *Deployment {
 		logger = slog.Default()
 	}
 	d := &Deployment{
-		logger:        logger,
-		nodes:         map[string]*runningNode{},
-		inboxes:       map[nodePort]*bus.Wire{},
-		inboxFP:       map[nodePort]string{},
-		outputTargets: map[nodePort][]nodePort{},
-		ringBuffers:   map[string]*ringBuffer{},
-		limiters:      map[string]*rateLimiter{},
-		debugSink:     NoopDebugSink,
-		metricsStop:   make(chan struct{}),
-		connResolver:  NoopConnectionResolver,
-		ctxStore:      ctxstore.NewMemoryStore(),
+		logger:         logger,
+		nodes:          map[string]*runningNode{},
+		inboxes:        map[nodePort]*bus.Wire{},
+		inboxFP:        map[nodePort]string{},
+		outputTargets:  map[nodePort][]nodePort{},
+		ringBuffers:    map[string]*ringBuffer{},
+		limiters:       map[string]*rateLimiter{},
+		debugSink:      NoopDebugSink,
+		metricsStop:    make(chan struct{}),
+		connResolver:   NoopConnectionResolver,
+		ctxStore:       ctxstore.NewMemoryStore(),
+		execSink:       NoopExecutionSink,
+		execTracker:    NewTracker(0, false, 0, NoopExecutionSink),
+		deadLetterSink: NoopDeadLetterSink,
 	}
 	go d.pollWireMetrics()
 	return d
@@ -126,6 +147,92 @@ func (g *Deployment) SetConnectionResolver(resolver ConnectionResolver) {
 		resolver = NoopConnectionResolver
 	}
 	g.connResolver = resolver
+}
+
+// SetExecutionSink attaches (or detaches, with nil) the triggered-execution
+// reporter (Increment 8, ENG-130/DBG-140). Safe to call at any time.
+func (g *Deployment) SetExecutionSink(sink ExecutionSink) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if sink == nil {
+		sink = NoopExecutionSink
+	}
+	g.execSink = sink
+	g.execTracker.SetSink(sink)
+}
+
+// SetDeadLetterSink attaches (or detaches, with nil) the ERR-130 dead-letter
+// reporter. Safe to call at any time.
+func (g *Deployment) SetDeadLetterSink(sink DeadLetterSink) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if sink == nil {
+		sink = NoopDeadLetterSink
+	}
+	g.deadLetterSink = sink
+}
+
+// SetDefaultErrorFlow sets the owning project's ERR-120 fallback
+// error-handler flow id, used when a deployed flow has no settings.errorFlow
+// of its own. Deployment has no notion of "project" itself, so the control
+// plane supplies this at deploy time.
+func (g *Deployment) SetDefaultErrorFlow(flowID string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.defaultErrorFlow = flowID
+}
+
+// ErrorFlowTarget returns the flow id (ERR-120's designated error handler)
+// unhandled node errors should be published for, or "" if none is
+// configured at either the flow or project level.
+func (g *Deployment) ErrorFlowTarget() string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.flowSettings.ErrorFlow != "" {
+		return g.flowSettings.ErrorFlow
+	}
+	return g.defaultErrorFlow
+}
+
+// ErrorFlowTopic is the topics.Broker topic an unhandled node error is
+// published to for a given target flow id (ERR-120), and the pattern an
+// "error-trigger" node subscribes to consume it: a specific flow id for a
+// flow-level override, or "*" for the project-wide default handler
+// (translated to the "#" wildcard, matching every flow's errors). The
+// "$errors/" prefix is reserved, mirroring MQTT's own "$SYS/" convention,
+// so it can never collide with a user-chosen bus-in/bus-out topic name.
+func ErrorFlowTopic(flowID string) string {
+	if flowID == "*" {
+		return "$errors/#"
+	}
+	return "$errors/" + flowID
+}
+
+// reconfigureTrackerLocked applies settings to g.execTracker IN PLACE
+// (Tracker.Reconfigure), never replacing the object itself: every already-
+// running node's runner captured a pointer to this Tracker at startNode
+// time and keeps it for its whole lifetime, so a node whose own
+// fingerprint didn't change (and so isn't restarted by this Deploy call)
+// would silently report to an orphaned tracker forever if g.execTracker
+// were ever swapped out from under it. Called with g.mu held. Skipped
+// (keeping the existing settings as-is) when an execution is currently in
+// flight, since resizing the concurrency semaphore mid-execution would
+// lose that execution's accounting — settings changed by a redeploy while
+// executions are running take effect on the next idle deploy instead
+// (documented limitation).
+func (g *Deployment) reconfigureTrackerLocked(s Settings) {
+	if !g.execTracker.Idle() {
+		return
+	}
+	maxConcurrency := 0
+	if s.MaxConcurrency != nil {
+		maxConcurrency = *s.MaxConcurrency
+	}
+	timeout := time.Duration(0)
+	if s.ExecutionTimeoutMs != nil {
+		timeout = time.Duration(*s.ExecutionTimeoutMs) * time.Millisecond
+	}
+	g.execTracker.Reconfigure(maxConcurrency, s.ConcurrencyPolicy == "reject", timeout)
 }
 
 // SetDebugSink attaches (or detaches, with nil) the live-debugging sink that
@@ -254,6 +361,8 @@ func (g *Deployment) Deploy(ctx context.Context, f *FlowFile) error {
 
 	g.flowID = f.ID
 	g.wires = append([]Wire(nil), f.Graph.Wires...)
+	g.flowSettings = f.Settings
+	g.reconfigureTrackerLocked(f.Settings)
 
 	nodeByID := make(map[string]*Node, len(f.Graph.Nodes))
 	infoByID := make(map[string]NodeTypeInfo, len(f.Graph.Nodes))
@@ -451,16 +560,20 @@ func (g *Deployment) startNode(ctx context.Context, n *Node, info NodeTypeInfo, 
 	nodeCtx = WithContextStore(nodeCtx, g.ctxStore)
 	metrics := &NodeMetrics{}
 	runner := &nodeRunner{
-		id:          n.ID,
-		flowID:      g.flowID,
-		inputPort:   inputPort,
-		errorPolicy: n.ErrorPolicy,
-		outputs:     outputs,
-		logger:      g.logger,
-		metrics:     metrics,
-		ring:        ring,
-		limiter:     limiter,
-		sink:        g.debugSink,
+		id:              n.ID,
+		flowID:          g.flowID,
+		inputPort:       inputPort,
+		errorPolicy:     n.ErrorPolicy,
+		outputs:         outputs,
+		logger:          g.logger,
+		metrics:         metrics,
+		ring:            ring,
+		limiter:         limiter,
+		sink:            g.debugSink,
+		isTrigger:       info.Kind == KindSource && info.Trigger,
+		execTracker:     g.execTracker,
+		deadLetterSink:  g.deadLetterSink,
+		errorFlowTarget: g.ErrorFlowTarget,
 	}
 
 	done := make(chan struct{})
@@ -525,6 +638,101 @@ func (g *Deployment) inboxesForOutput(nodeID, port string) []*bus.Wire {
 		}
 	}
 	return wires
+}
+
+// ReplayOutput re-injects seed — a previously recorded datagram emitted by
+// (nodeID, port) — into that output's current downstream inbox target(s),
+// exactly as if the node had just produced it again (DBG-140 "re-run from
+// start": the trigger node's own recorded emission is replayed this way).
+// Starts a fresh tracked execution (Increment 8) tagged reRunOf. Returns an
+// error without starting anything if that output has no current downstream
+// wire (e.g. the flow changed since the original run).
+func (g *Deployment) ReplayOutput(ctx context.Context, nodeID, port string, seed datagram.Datagram, reRunOf string) (executionID string, err error) {
+	g.mu.Lock()
+	wires := g.inboxesForOutput(nodeID, port)
+	tracker, flowID := g.execTracker, g.flowID
+	g.mu.Unlock()
+
+	if len(wires) == 0 {
+		return "", fmt.Errorf("flow: node %q port %q has no current downstream wire to replay into", nodeID, port)
+	}
+
+	fresh := freshRootFrom(seed)
+	executionID, err = tracker.Start(ctx, flowID, nodeID, "rerun", reRunOf, fresh)
+	if err != nil {
+		return "", err
+	}
+	fo := bus.NewFanOut(datagram.DefaultBinaryRefThreshold, wires...)
+	if err := fo.Send(ctx, fresh); err != nil {
+		return executionID, fmt.Errorf("flow: replaying output: %w", err)
+	}
+	return executionID, nil
+}
+
+// ReplayInput re-injects seed — a previously recorded input to (nodeID,
+// port) — directly into that node's own inbox, as if it had just arrived
+// normally (DBG-140 "re-run from failed node": that node and everything
+// downstream of it re-executes; nothing upstream does). Starts a fresh
+// tracked execution (Increment 8) tagged reRunOf.
+func (g *Deployment) ReplayInput(ctx context.Context, nodeID, port string, seed datagram.Datagram, reRunOf string) (executionID string, err error) {
+	g.mu.Lock()
+	w, ok := g.inboxes[nodePort{nodeID, port}]
+	tracker, flowID := g.execTracker, g.flowID
+	g.mu.Unlock()
+
+	if !ok {
+		return "", fmt.Errorf("flow: node %q has no current inbox on port %q to replay into", nodeID, port)
+	}
+
+	fresh := freshRootFrom(seed)
+	executionID, err = tracker.Start(ctx, flowID, nodeID, "rerun", reRunOf, fresh)
+	if err != nil {
+		return "", err
+	}
+	if _, err := w.Send(ctx, fresh); err != nil {
+		return executionID, fmt.Errorf("flow: replaying input: %w", err)
+	}
+	return executionID, nil
+}
+
+// freshRootFrom builds a brand-new correlation chain (datagram.New) carrying
+// seed's source/payload/tags/quality, for re-run: the replay is a genuinely
+// new execution, not a continuation of the original one's lineage.
+func freshRootFrom(seed datagram.Datagram) datagram.Datagram {
+	fresh := datagram.New(seed.Header.Source, seed.Payload)
+	fresh.Header.Tags = seed.Header.Tags
+	fresh.Header.Quality = seed.Header.Quality
+	fresh.Header.SchemaRef = seed.Header.SchemaRef
+	fresh.Header.ContentType = seed.Header.ContentType
+	return fresh
+}
+
+// CancelExecution requests cancellation of a currently tracked execution
+// (ENG-130). Reports false if executionID isn't currently tracked.
+func (g *Deployment) CancelExecution(executionID string) bool {
+	g.mu.Lock()
+	tracker, flowID := g.execTracker, g.flowID
+	g.mu.Unlock()
+	return tracker.Cancel(flowID, executionID)
+}
+
+// ReinjectDeadLetter (ERR-130) delivers d — a previously dead-lettered
+// datagram — back into (nodeID, port)'s own inbox exactly as it was
+// captured (unlike ReplayInput, this does NOT start a new tracked
+// execution: a dead letter may belong to an ordinary streaming flow, and
+// resuming it should look identical to normal delivery, not a fresh
+// execution).
+func (g *Deployment) ReinjectDeadLetter(ctx context.Context, nodeID, port string, d datagram.Datagram) error {
+	g.mu.Lock()
+	w, ok := g.inboxes[nodePort{nodeID, port}]
+	g.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("flow: node %q has no current inbox on port %q to re-inject into", nodeID, port)
+	}
+	if _, err := w.Send(ctx, d); err != nil {
+		return fmt.Errorf("flow: re-injecting dead letter: %w", err)
+	}
+	return nil
 }
 
 func parseOverflow(spec string) (bus.OverflowPolicy, int) {

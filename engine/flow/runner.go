@@ -15,6 +15,7 @@ import (
 	"github.com/1uedev/DataPipe/engine/bus"
 	"github.com/1uedev/DataPipe/engine/datagram"
 	"github.com/1uedev/DataPipe/engine/internal/backoff"
+	"github.com/1uedev/DataPipe/engine/topics"
 )
 
 // NodeMetrics are the per-node counters exposed for observability.
@@ -40,6 +41,13 @@ func (m *NodeMetrics) Snapshot() MetricsSnapshot {
 	}
 }
 
+// TriggerKindProvider is implemented by a trigger node instance that knows a
+// more specific ENG-130 trigger-kind label than the generic default (e.g.
+// "webhook" for http-in). Optional.
+type TriggerKindProvider interface {
+	TriggerKind() string
+}
+
 // nodeRunner drives one node instance: a Source in its own goroutine, or a
 // Processor's receive-process-send loop over its inbox wire.
 type nodeRunner struct {
@@ -53,6 +61,44 @@ type nodeRunner struct {
 	ring        *ringBuffer
 	limiter     *rateLimiter
 	sink        DebugSink
+
+	// Increment 8: isTrigger marks this a trigger-node instance (ENG-100),
+	// so runSource starts a tracked execution (ENG-130) for each fresh
+	// datagram it emits. execTracker/deadLetterSink are nil for a
+	// nodeRunner built directly in a test (as opposed to via
+	// Deployment.startNode) — use the tracker()/dlq() accessors below,
+	// never these fields directly, so that case degrades to a no-op
+	// instead of a nil-pointer panic.
+	isTrigger      bool
+	execTracker    *Tracker
+	deadLetterSink DeadLetterSink
+
+	// errorFlowTarget resolves ERR-120's designated error-handler flow id
+	// (flow-level override or project default) at the moment it's needed,
+	// since it can change after a redeploy or SetDefaultErrorFlow call
+	// without restarting this node. nil (e.g. a directly test-built
+	// runner) means "no error flow configured".
+	errorFlowTarget func() string
+}
+
+// noopTracker is shared by every nodeRunner with no execTracker configured
+// (e.g. built directly in a unit test); since such a runner's isTrigger is
+// also always false, Start is never called on it and NodeEvent always
+// no-ops (untracked correlation id), so sharing one instance is safe.
+var noopTracker = NewTracker(0, false, 0, NoopExecutionSink)
+
+func (r *nodeRunner) tracker() *Tracker {
+	if r.execTracker == nil {
+		return noopTracker
+	}
+	return r.execTracker
+}
+
+func (r *nodeRunner) dlq() DeadLetterSink {
+	if r.deadLetterSink == nil {
+		return NoopDeadLetterSink
+	}
+	return r.deadLetterSink
 }
 
 // captureDebug records a datagram observed at a node boundary into its ring
@@ -89,10 +135,24 @@ func (r *nodeRunner) runSource(ctx context.Context, src Source) {
 		}
 	}()
 
+	triggerKind := "trigger"
+	if tk, ok := src.(TriggerKindProvider); ok {
+		triggerKind = tk.TriggerKind()
+	}
+
 	emit := func(port string, d datagram.Datagram) error {
 		fo, ok := r.outputs[port]
 		if !ok {
 			return fmt.Errorf("node %s: no such output port %q", r.id, port)
+		}
+		// A trigger node's fresh datagram (CorrelationID == ID, DGM-160)
+		// starts a new tracked execution (ENG-100/ENG-130) before it is
+		// allowed onto the wire, so concurrency limiting/queueing happens
+		// ahead of any downstream work.
+		if r.isTrigger && d.Header.CorrelationID == d.Header.ID {
+			if _, err := r.tracker().Start(ctx, r.flowID, r.id, triggerKind, "", d); err != nil {
+				return err
+			}
 		}
 		r.captureDebug(DirOut, port, "", d)
 		return fo.Send(ctx, d)
@@ -112,7 +172,10 @@ func (r *nodeRunner) runProcessor(ctx context.Context, proc Processor, inbox *bu
 			return
 		}
 		r.captureDebug(DirIn, r.inputPort, "", in)
-		r.handle(ctx, in, proc.Process)
+		if r.dropExpired(in, r.inputPort) {
+			continue
+		}
+		r.handle(ctx, r.inputPort, in, proc.Process)
 	}
 }
 
@@ -127,17 +190,36 @@ func (r *nodeRunner) runMultiProcessor(ctx context.Context, proc MultiInputProce
 			return
 		}
 		r.captureDebug(DirIn, port, "", in)
-		r.handle(ctx, in, func(ctx context.Context, in datagram.Datagram) ([]PortDatagram, error) {
+		if r.dropExpired(in, port) {
+			continue
+		}
+		r.handle(ctx, port, in, func(ctx context.Context, in datagram.Datagram) ([]PortDatagram, error) {
 			return proc.ProcessPort(ctx, port, in)
 		})
 	}
 }
 
+// dropExpired dead-letters and reports a terminal failure for a datagram
+// whose TTL (DGM-100 header.ttl) has already passed (ERR-130 "expired
+// datagrams go to a per-flow dead-letter topic"), instead of processing it.
+// Reports true if in was expired (and thus already handled).
+func (r *nodeRunner) dropExpired(in datagram.Datagram, port string) bool {
+	if !in.Header.Expired(time.Now()) {
+		return false
+	}
+	now := time.Now().UTC()
+	r.logger.Warn("datagram TTL expired before processing; dead-lettering", "node", r.id, "port", port)
+	r.dlq().Capture(r.flowID, r.id, port, "ttl_expired", in, now)
+	r.tracker().NodeEvent(r.flowID, in, NodeIO{NodeID: r.id, Port: port, Attempt: 1, At: now, Input: in}, "fail")
+	return true
+}
+
 // handle runs one datagram through invoke (either a Processor's Process or
 // a MultiInputProcessor's ProcessPort bound to its port), applying
 // ERR-100's error policy on failure. Panics inside invoke are recovered
-// (ARC-150).
-func (r *nodeRunner) handle(ctx context.Context, in datagram.Datagram, invoke func(context.Context, datagram.Datagram) ([]PortDatagram, error)) {
+// (ARC-150). port is whichever input port in arrived on (needed for
+// Increment 8's per-node execution/dead-letter reporting).
+func (r *nodeRunner) handle(ctx context.Context, port string, in datagram.Datagram, invoke func(context.Context, datagram.Datagram) ([]PortDatagram, error)) {
 	policy := r.policy()
 	attempt := 1
 	var bo *backoff.Backoff
@@ -150,10 +232,12 @@ func (r *nodeRunner) handle(ctx context.Context, in datagram.Datagram, invoke fu
 	}
 
 	for {
+		start := time.Now()
 		results, err := invokeWithRecover(ctx, invoke, in)
 		if err == nil {
 			r.metrics.Processed.Add(1)
 			r.dispatch(ctx, results)
+			r.reportNode(in, port, attempt, start, results, nil, "")
 			return
 		}
 
@@ -176,10 +260,14 @@ func (r *nodeRunner) handle(ctx context.Context, in datagram.Datagram, invoke fu
 				continue
 			}
 			r.logger.Error("node processing failed after retries", "node", r.id, "error", nodeErr)
+			// Retries exhausted: the datagram is ultimately undelivered,
+			// so it is reported/dead-lettered exactly like the default
+			// "fail" policy (ERR-100/ERR-130).
+			r.reportNode(in, port, attempt, start, nil, nodeErr, "fail")
 			return
 		}
 
-		r.applyTerminalPolicy(ctx, policy, in, nodeErr)
+		r.applyTerminalPolicy(ctx, policy, port, attempt, start, in, nodeErr)
 		return
 	}
 }
@@ -200,12 +288,13 @@ func (r *nodeRunner) dispatch(ctx context.Context, results []PortDatagram) {
 
 // applyTerminalPolicy handles the non-retry outcomes: errorPort routes an
 // error datagram; discard drops silently; fail (the default) drops and logs.
-func (r *nodeRunner) applyTerminalPolicy(ctx context.Context, policy ErrorPolicy, in datagram.Datagram, nodeErr *NodeError) {
+func (r *nodeRunner) applyTerminalPolicy(ctx context.Context, policy ErrorPolicy, port string, attempt int, start time.Time, in datagram.Datagram, nodeErr *NodeError) {
 	switch policy.OnError {
 	case "errorPort":
 		fo, ok := r.outputs["error"]
 		if !ok {
 			r.logger.Error("errorPort policy but no error output wired", "node", r.id, "error", nodeErr)
+			r.reportNode(in, port, attempt, start, nil, nodeErr, "fail")
 			return
 		}
 		errDgm := BuildErrorDatagram(in, nodeErr)
@@ -213,10 +302,47 @@ func (r *nodeRunner) applyTerminalPolicy(ctx context.Context, policy ErrorPolicy
 		if err := fo.Send(ctx, errDgm); err != nil && ctx.Err() == nil {
 			r.logger.Error("failed to send to error port", "node", r.id, "error", err)
 		}
+		r.reportNode(in, port, attempt, start, []PortDatagram{{Port: "error", Datagram: errDgm}}, nodeErr, "errorPort")
 	case "discard":
 		r.logger.Debug("node processing failed, discarding", "node", r.id, "error", nodeErr)
+		r.reportNode(in, port, attempt, start, nil, nodeErr, "discard")
 	default: // "fail"
 		r.logger.Error("node processing failed", "node", r.id, "error", nodeErr)
+		r.reportNode(in, port, attempt, start, nil, nodeErr, "fail")
+	}
+}
+
+// reportNode forwards one node's outcome to the attached Tracker (Increment
+// 8, ENG-130/DBG-140) and, when the datagram is now undeliverable ("fail" or
+// "discard"), to the attached DeadLetterSink (ERR-130). onError == "fail"
+// (ERR-100's default, meaning genuinely unhandled) additionally publishes
+// the error datagram to the flow-level error handler, if one is configured
+// (ERR-120) — "discard" and "errorPort" are the flow author's own
+// deliberate, acknowledged handling and do not. A no-op for tracking/DLQ
+// purposes when in doesn't belong to a tracked execution — see
+// Tracker.NodeEvent.
+func (r *nodeRunner) reportNode(in datagram.Datagram, port string, attempt int, start time.Time, outputs []PortDatagram, nodeErr *NodeError, onError string) {
+	ev := NodeIO{
+		NodeID:     r.id,
+		Port:       port,
+		Attempt:    attempt,
+		At:         start.UTC(),
+		DurationUs: time.Since(start).Microseconds(),
+		Input:      in,
+		Outputs:    outputs,
+		Err:        nodeErr,
+	}
+	r.tracker().NodeEvent(r.flowID, in, ev, onError)
+	if nodeErr == nil {
+		return
+	}
+	if onError == "fail" || onError == "discard" {
+		r.dlq().Capture(r.flowID, r.id, port, "node_error", in, time.Now().UTC())
+	}
+	if onError == "fail" && r.errorFlowTarget != nil {
+		if target := r.errorFlowTarget(); target != "" {
+			topics.DefaultBroker.Publish(context.Background(), ErrorFlowTopic(target), nil, BuildErrorDatagram(in, nodeErr))
+		}
 	}
 }
 

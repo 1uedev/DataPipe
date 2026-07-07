@@ -100,6 +100,48 @@ func (s *Store) DeleteFlow(ctx context.Context, id string) error {
 	return err
 }
 
+// DeployedFlow is one currently-deployed flow's canonical content, for
+// pushing to a runtime that just (re)registered (ERR-150: "runtime restart
+// restores all deployed flows... automatically").
+type DeployedFlow struct {
+	FlowID           string
+	Version          int64
+	ContentJSON      string
+	DefaultErrorFlow string
+}
+
+// ListDeployedFlows returns every flow that currently has a deployed
+// version, with its deployed content and owning project's ERR-120 default
+// error-handler flow id.
+func (s *Store) ListDeployedFlows(ctx context.Context) ([]DeployedFlow, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT f.id, fv.version, fv.content, p.default_error_flow
+		FROM flows f
+		JOIN flow_versions fv ON fv.flow_id = f.id AND fv.version = f.deployed_version
+		JOIN projects p ON p.id = f.project_id
+		WHERE f.deployed_version IS NOT NULL`)
+	if err != nil {
+		return nil, fmt.Errorf("api: listing deployed flows: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []DeployedFlow
+	for rows.Next() {
+		var d DeployedFlow
+		var content string
+		var defaultErrorFlow sql.NullString
+		if err := rows.Scan(&d.FlowID, &d.Version, &content, &defaultErrorFlow); err != nil {
+			return nil, fmt.Errorf("api: scanning deployed flow: %w", err)
+		}
+		d.ContentJSON = content
+		if defaultErrorFlow.Valid {
+			d.DefaultErrorFlow = defaultErrorFlow.String
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
 // CreateDeployedVersion snapshots flow's current draft as the next
 // immutable version (VCS-110) and marks it deployed, atomically.
 func (s *Store) CreateDeployedVersion(ctx context.Context, flowID, author, comment string) (*FlowVersion, error) {
@@ -375,7 +417,17 @@ func (h *Handlers) deployFlow(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	if err := h.deployer.DeployFlow(r.Context(), f.ID, version.Version, string(canonical)); err != nil {
+	project, err := h.store.GetProject(r.Context(), f.ProjectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	defaultErrorFlow := ""
+	if project.DefaultErrorFlow != nil {
+		defaultErrorFlow = *project.DefaultErrorFlow
+	}
+
+	if err := h.deployer.DeployFlow(r.Context(), f.ID, version.Version, string(canonical), defaultErrorFlow); err != nil {
 		writeError(w, http.StatusConflict, "no runtime available to deploy to: "+err.Error())
 		return
 	}
@@ -478,7 +530,17 @@ func (h *Handlers) rollbackFlow(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	if err := h.deployer.DeployFlow(r.Context(), f.ID, newVersion.Version, string(canonical)); err != nil {
+	project, err := h.store.GetProject(r.Context(), f.ProjectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	defaultErrorFlow := ""
+	if project.DefaultErrorFlow != nil {
+		defaultErrorFlow = *project.DefaultErrorFlow
+	}
+
+	if err := h.deployer.DeployFlow(r.Context(), f.ID, newVersion.Version, string(canonical), defaultErrorFlow); err != nil {
 		writeError(w, http.StatusConflict, "no runtime available to deploy to: "+err.Error())
 		return
 	}

@@ -39,6 +39,14 @@ type NodeTypeInfo struct {
 	Inputs  []string // empty for Source
 	Outputs []string // ports the node can emit on, in addition to the implicit "error" port
 
+	// Trigger marks a Source type as a trigger node (ENG-100): each
+	// datagram it emits becomes a durably tracked execution (ENG-130,
+	// DBG-140) rather than an item in an always-on stream. Meaningless
+	// (and expected false) when Kind != KindSource. A flow's entry nodes
+	// must be either all Trigger or all plain sources — see
+	// Flow-File-Format.md §7 rule 4 and Validate.
+	Trigger bool
+
 	DisplayName  string
 	Category     Category
 	Description  string

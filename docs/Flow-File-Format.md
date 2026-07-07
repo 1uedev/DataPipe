@@ -26,9 +26,10 @@ This is the core contract between editor, control plane, and runtime. Implement 
   "runtimeAssignment": { "group": "edge-fab2" },   // UI-220; null = default runtime
 
   "settings": {
-    "errorFlow": "flow_errhandler",    // ERR-120 override, optional
+    "errorFlow": "flow_errhandler",    // ERR-120 override, optional; falls back to the project's defaultErrorFlow
     "guaranteedDelivery": false,       // BUS-150
-    "maxConcurrency": null,            // triggered mode only (ENG-130)
+    "maxConcurrency": null,            // triggered mode only (ENG-130); null = unlimited
+    "concurrencyPolicy": "queue",      // triggered mode only (ENG-130): "queue" | "reject" once maxConcurrency is reached
     "executionTimeoutMs": null
   },
 
@@ -100,6 +101,20 @@ Any string config value starting with `={{` and ending with `}}` is an expressio
 
 Port names are defined by the node type manifest (e.g. `filter`: `pass`/`drop`; `switch`: dynamic `out0..outN` + `default`; every node implicitly has `error` when `errorPolicy.onError == "errorPort"`).
 
+### Trigger nodes and execution ids (ENG-100/ENG-130)
+
+A node type manifest marks itself as a **trigger** node (as opposed to a plain streaming source) when each unit of work it produces should become a durably tracked execution rather than an untracked item in an always-on stream — e.g. `http-in` (a webhook call) or `error-trigger` (ERR-120's flow-level error handler entry point). A flow's `mode` is derived, not chosen: a flow whose only entry (input-less) nodes are trigger nodes is `"triggered"`; a flow whose only entry nodes are plain sources is `"streaming"`; mixing the two among entry nodes is rejected (§7 rule 4).
+
+For a triggered flow, the **execution id equals the root datagram's `header.correlationId`** (DGM-160): the trigger node's `datagram.New` call starts a fresh correlation chain, and every datagram causally descended from it (via `NewCaused`) carries the same `correlationId` for the execution's lifetime. No separate execution-id field exists on the envelope — this is a deliberate reuse of the existing lineage mechanism rather than a second parallel id space.
+
+### Dead letters (ERR-130)
+
+Every flow has an implicit per-flow dead-letter destination, durable and browsable through the control plane API, independent of `mode`. A datagram is dead-lettered (never silently dropped) when: (a) a node's `errorPolicy.onError` resolves to `"fail"` (the default) or `"discard"` after any configured retries are exhausted, or (b) a datagram's `header.ttl` expires before a node receives it. Dead-lettered datagrams can be re-injected (at the node that dead-lettered them) after the underlying issue is fixed. This is not a file-format field — it requires no flow-file changes, only control-plane-side storage and API surface.
+
+### Flow-level error handling (ERR-120)
+
+When a node's error is "unhandled" — its `errorPolicy.onError` resolves to `"fail"` (not caught by an `errorPort` wire or a try/catch scope, PROC-370/ERR-110) — the runtime builds the same error datagram shape ERR-100's `errorPort` policy would (original datagram + error object) and publishes it for delivery to a flow-level error handler: the flow's own `settings.errorFlow` if set, otherwise the owning project's default error-handler flow (`defaultErrorFlow`, a project-level setting — not part of any individual flow file). The designated error-handler flow is an ordinary triggered flow whose entry node is `error-trigger`, configured with the flow id (or `"*"` for the project-wide default handler) whose errors it receives.
+
 ## 3. Subflow file (`kind: "subflow"`)
 
 Adds to the flow file:
@@ -148,7 +163,7 @@ Deploy = flow + profile; missing variables fail validation before deploy (UI-200
 
 ```
 my-project/
-├── project.json          # id, name, description, defaults
+├── project.json          # id, name, description, defaults (incl. defaultErrorFlow, ERR-120)
 ├── connections.json      # credential refs only, no secrets
 ├── flows/
 │   ├── line3-temp.flow.json
@@ -167,7 +182,7 @@ my-project/
 1. All wire endpoints reference existing nodes/ports; port direction respected; no wire into a source-only port.
 2. Every `connection` ref resolves; connection `type` matches what the node type declares.
 3. `config` validates against the node type's JSON Schema for its `typeVersion`; unknown node types block deploy (with plugin-install hint, UI-110).
-4. Streaming flows must contain ≥ 1 source node; triggered flows must start with a trigger node; mixed entry types are rejected (ENG-100).
+4. Streaming flows must contain ≥ 1 source node and no trigger node among its entry (input-less) nodes; triggered flows must have ≥ 1 entry node and every entry node must be a trigger node (see "Trigger nodes and execution ids" above); mixing plain-source and trigger entry nodes in one flow is rejected (ENG-100).
 5. Loops only through the loop node's designated loop port (PROC-340); other cycles are rejected.
 6. IDs unique per file; file must round-trip byte-identically through the canonical serializer.
 

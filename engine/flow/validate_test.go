@@ -24,6 +24,10 @@ func init() {
 	Register("test-sink", NodeTypeInfo{Kind: KindProcessor, Inputs: []string{"in"}}, func(json.RawMessage) (any, error) {
 		return nil, nil
 	})
+	// A trigger source (ENG-100/ENG-130), for §7 rule 4 tests.
+	Register("test-trigger", NodeTypeInfo{Kind: KindSource, Trigger: true, Outputs: []string{"out"}}, func(json.RawMessage) (any, error) {
+		return nil, nil
+	})
 	// A schema-bearing type, for rule 3 (node-config JSON-Schema
 	// validation) tests — the other test types above deliberately have no
 	// ConfigSchema, to also prove that's treated as unconstrained rather
@@ -143,6 +147,46 @@ func TestFLOWVALIDATE_ModeMismatchWithSourceNode(t *testing.T) {
 	f := validFlow()
 	f.Mode = ModeTriggered
 	assertProblem(t, f, "flow contains a source node but mode")
+}
+
+func triggerFlow() *FlowFile {
+	return &FlowFile{
+		FormatVersion: 1, Kind: KindFlow, ID: "flow_trigger", Name: "t", Mode: ModeTriggered,
+		Graph: Graph{
+			Nodes: []Node{
+				{ID: "n1", Type: "test-trigger", TypeVersion: 1},
+				{ID: "n2", Type: "test-sink", TypeVersion: 1},
+			},
+			Wires: []Wire{
+				{ID: "w1", From: Endpoint{Node: "n1", Port: "out"}, To: Endpoint{Node: "n2", Port: "in"}},
+			},
+		},
+	}
+}
+
+func TestFLOWVALIDATE_TriggeredFlowWithTriggerNodePasses(t *testing.T) {
+	if err := Validate(triggerFlow()); err != nil {
+		t.Fatalf("Validate(valid trigger flow) = %v, want nil", err)
+	}
+}
+
+func TestFLOWVALIDATE_TriggeredModeWithoutTriggerNodeRejected(t *testing.T) {
+	f := triggerFlow()
+	f.Graph.Nodes[0].Type = "test-sink" // no entry node at all now (n2 already has an input)
+	f.Graph.Wires = nil
+	assertProblem(t, f, "triggered flows must start with a trigger node")
+}
+
+func TestFLOWVALIDATE_TriggerNodeWithStreamingModeRejected(t *testing.T) {
+	f := triggerFlow()
+	f.Mode = ModeStreaming
+	assertProblem(t, f, "flow contains a trigger node but mode")
+}
+
+func TestFLOWVALIDATE_MixingSourceAndTriggerEntryNodesRejected(t *testing.T) {
+	f := triggerFlow()
+	f.Graph.Nodes = append(f.Graph.Nodes, Node{ID: "n3", Type: "test-source", TypeVersion: 1})
+	assertProblem(t, f, "mixes a streaming source node with a trigger node")
 }
 
 func TestFLOWVALIDATE_MultipleProblemsAllReported(t *testing.T) {

@@ -35,6 +35,7 @@ import (
 	_ "github.com/1uedev/DataPipe/engine/nodes/convert"
 	_ "github.com/1uedev/DataPipe/engine/nodes/debuglog"
 	_ "github.com/1uedev/DataPipe/engine/nodes/delay"
+	_ "github.com/1uedev/DataPipe/engine/nodes/errortrigger"
 	_ "github.com/1uedev/DataPipe/engine/nodes/filewatch"
 	_ "github.com/1uedev/DataPipe/engine/nodes/filter"
 	_ "github.com/1uedev/DataPipe/engine/nodes/httpin"
@@ -53,6 +54,7 @@ import (
 	_ "github.com/1uedev/DataPipe/engine/nodes/sqlsink"
 	_ "github.com/1uedev/DataPipe/engine/nodes/sqlsource"
 	_ "github.com/1uedev/DataPipe/engine/nodes/state"
+	_ "github.com/1uedev/DataPipe/engine/nodes/stoperror"
 	_ "github.com/1uedev/DataPipe/engine/nodes/switchroute"
 	_ "github.com/1uedev/DataPipe/engine/nodes/template"
 	_ "github.com/1uedev/DataPipe/engine/nodes/trycatch"
@@ -89,13 +91,15 @@ func main() {
 	apiStore := api.NewStore(database)
 	reg := registry.NewService()
 	reg.SetConnectionResolver(connectionResolverAdapter{api.NewConnectionResolver(apiStore, vault)})
+	reg.SetExecutionStore(executionStoreAdapter{apiStore})
+	reg.SetDeployedFlowsLister(deployedFlowsListerAdapter{apiStore})
 
 	if err := bootstrapAdmin(ctx, authStore); err != nil {
 		slog.Error("failed to bootstrap admin user", "error", err)
 		os.Exit(1)
 	}
 
-	handlers := api.NewHandlers(apiStore, authStore, vault, auditLog, reg, runtimeLister{reg}, reg.DebugHub(), slog.Default())
+	handlers := api.NewHandlers(apiStore, authStore, vault, auditLog, reg, runtimeLister{reg}, reg.DebugHub(), reg, slog.Default())
 
 	healthSrv := health.NewServer(func() error {
 		pingCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -208,6 +212,48 @@ func (a connectionResolverAdapter) ResolveConnection(ctx context.Context, connec
 		return registry.ConnectionInfo{}, err
 	}
 	return registry.ConnectionInfo{Type: info.Type, ConfigJSON: info.ConfigJSON, CredentialJSON: info.CredentialJSON}, nil
+}
+
+// executionStoreAdapter adapts api.Store to registry.ExecutionStore
+// (Increment 8), the same no-lower-package-depends-on-a-higher-one pattern
+// as the adapters above.
+type executionStoreAdapter struct{ store *api.Store }
+
+func (a executionStoreAdapter) RecordExecutionEvent(ctx context.Context, runtimeID string, ev registry.ExecutionEvent) error {
+	return a.store.RecordExecutionEvent(ctx, runtimeID, api.ExecutionEventInput{
+		ExecutionID: ev.ExecutionID, FlowID: ev.FlowID, Phase: ev.Phase, TimeUnixMs: ev.TimeUnixMs,
+		TriggerNodeID: ev.TriggerNodeID, TriggerKind: ev.TriggerKind, ReRunOf: ev.ReRunOf, SeedDatagramJSON: ev.SeedDatagramJSON,
+		NodeID: ev.NodeID, Port: ev.Port, Attempt: ev.Attempt, DurationUs: ev.DurationUs,
+		InputJSON: ev.InputJSON, OutputsJSON: ev.OutputsJSON,
+		ErrorMessage: ev.ErrorMessage, ErrorCode: ev.ErrorCode, ErrorStack: ev.ErrorStack,
+		Status: ev.Status, Reason: ev.Reason,
+	})
+}
+
+func (a executionStoreAdapter) RecordDeadLetter(ctx context.Context, runtimeID string, ev registry.DeadLetterEvent) error {
+	return a.store.RecordDeadLetter(ctx, runtimeID, api.DeadLetterEventInput{
+		FlowID: ev.FlowID, NodeID: ev.NodeID, Port: ev.Port, Reason: ev.Reason, DatagramJSON: ev.DatagramJSON, TimeUnixMs: ev.TimeUnixMs,
+	})
+}
+
+func (a executionStoreAdapter) MarkRuntimeExecutionsCrashed(ctx context.Context, runtimeID string) error {
+	return a.store.MarkRuntimeExecutionsCrashed(ctx, runtimeID)
+}
+
+// deployedFlowsListerAdapter adapts api.Store to registry.
+// DeployedFlowsLister (Increment 8, ERR-150).
+type deployedFlowsListerAdapter struct{ store *api.Store }
+
+func (a deployedFlowsListerAdapter) ListDeployedFlows(ctx context.Context) ([]registry.DeployedFlowInfo, error) {
+	flows, err := a.store.ListDeployedFlows(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]registry.DeployedFlowInfo, len(flows))
+	for i, f := range flows {
+		out[i] = registry.DeployedFlowInfo{FlowID: f.FlowID, Version: f.Version, ContentJSON: f.ContentJSON, DefaultErrorFlow: f.DefaultErrorFlow}
+	}
+	return out, nil
 }
 
 func envOr(key, fallback string) string {

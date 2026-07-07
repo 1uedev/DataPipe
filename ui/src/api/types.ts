@@ -194,3 +194,57 @@ export interface DebugPin {
   value: unknown
   updatedAt: string
 }
+
+// --- Increment 8: triggered workflows (ENG-130/DBG-140/ERR-130) ---
+
+export type ExecutionStatus = 'running' | 'waiting' | 'success' | 'failed' | 'cancelled' | 'crashed'
+
+export interface Execution {
+  id: string
+  flowId: string
+  runtimeId: string
+  status: ExecutionStatus
+  triggerNodeId: string
+  triggerKind: string
+  reRunOf: string | null
+  startedAt: string
+  finishedAt: string | null
+  durationMs: number | null
+  reason: string
+}
+
+export interface ExecutionNodeIOError {
+  message: string
+  code: string
+  stack: string
+}
+
+export interface ExecutionNodeIO {
+  nodeId: string
+  port: string
+  attempt: number
+  at: string
+  durationUs: number
+  input: unknown
+  outputs: { port: string; datagram: unknown }[]
+  error: ExecutionNodeIOError | null
+}
+
+export interface ExecutionDetail extends Execution {
+  nodeIO: ExecutionNodeIO[]
+}
+
+export interface DeadLetter {
+  id: string
+  flowId: string
+  nodeId: string
+  port: string
+  reason: string
+  datagram: unknown
+  createdAt: string
+  reinjectedAt: string | null
+}
+
+export interface AsyncAccepted {
+  accepted: boolean
+}

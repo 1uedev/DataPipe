@@ -34,6 +34,16 @@ service RuntimeRegistryService {
   // sent here, to the runtime that needs it to actually connect, never
   // embedded in a deploy push or any flow export.
   rpc ResolveConnection(ResolveConnectionRequest) returns (ResolveConnectionResponse);
+
+  // EventChannel is opened by the runtime once, after Register, and kept
+  // open for the runtime's lifetime (Increment 8, ENG-130/DBG-140/ERR-130):
+  // the runtime durably reports every triggered-execution lifecycle event
+  // and every dead-lettered datagram; the control plane persists them and
+  // pushes re-run/cancel/re-inject commands down the same stream. Unlike
+  // DebugChannel this is never sampled or rate-limited (DBG-140 "every
+  // execution recorded") and is not gated by a subscribe/unsubscribe
+  // handshake — the control plane always wants every triggered-flow event.
+  rpc EventChannel(stream EventChannelRequest) returns (stream EventChannelResponse);
 }
 
 enum RuntimeKind {
@@ -74,6 +84,11 @@ message DeployStreamResponse {
   string flow_id = 1;
   int64 version = 2;
   string flow_json = 3;
+  // default_error_flow is the owning project's ERR-120 fallback
+  // error-handler flow id (Increment 8), applied via
+  // flow.Deployment.SetDefaultErrorFlow when the flow itself has no
+  // settings.errorFlow of its own. "" if the project has none configured.
+  string default_error_flow = 4;
 }
 
 // DebugChannelRequest is one message the runtime pushes on the DebugChannel:
@@ -154,4 +169,101 @@ message ResolveConnectionResponse {
   string type = 1;
   string config_json = 2;
   string credential_json = 3;
+}
+
+// EventChannelRequest is one message the runtime pushes on the
+// EventChannel: either a triggered-execution lifecycle event or a
+// dead-lettered datagram. Never sampled/dropped (unlike DebugChannel).
+message EventChannelRequest {
+  string runtime_id = 1;
+  string session_token = 2;
+  oneof payload {
+    ExecutionEvent execution_event = 3;
+    DeadLetterEvent dead_letter_event = 4;
+  }
+}
+
+// ExecutionEvent reports one moment in a tracked execution's lifecycle
+// (ENG-130/DBG-140): the trigger firing ("started"), one node's
+// input/output/error ("node"), or the execution reaching a terminal status
+// ("finished"). A flat message (like DebugEvent) rather than a nested
+// oneof, with phase-specific fields populated only for the relevant phase.
+message ExecutionEvent {
+  string execution_id = 1;  // the root datagram's correlationId (DGM-160)
+  string flow_id = 2;
+  string phase = 3;  // "started" | "node" | "finished"
+  int64 time_unix_ms = 4;
+
+  // phase == "started"
+  string trigger_node_id = 5;
+  string trigger_kind = 6;   // e.g. "webhook" | "rerun"
+  string re_run_of = 7;      // execution id this replays, if any
+  string seed_datagram_json = 8;
+
+  // phase == "node"
+  string node_id = 9;
+  string port = 10;
+  int32 attempt = 11;
+  int64 duration_us = 12;
+  string input_json = 13;
+  string outputs_json = 14;  // JSON array of {port, datagram}
+  string error_message = 15;
+  string error_code = 16;
+  string error_stack = 17;
+
+  // phase == "finished"
+  string status = 18;  // success | failed | cancelled | crashed
+  string reason = 19;
+}
+
+// DeadLetterEvent reports one dead-lettered datagram (ERR-130): a node
+// error that resolved to "fail"/"discard", or a TTL-expired datagram.
+message DeadLetterEvent {
+  string id = 1;
+  string flow_id = 2;
+  string node_id = 3;
+  string port = 4;
+  string reason = 5;  // e.g. "node_error" | "ttl_expired"
+  string datagram_json = 6;
+  int64 time_unix_ms = 7;
+}
+
+// EventChannelResponse is one message the control plane pushes on the
+// EventChannel: a command to re-run an execution, cancel one, or re-inject
+// a dead letter.
+message EventChannelResponse {
+  oneof payload {
+    RunExecution run_execution = 1;
+    CancelExecution cancel_execution = 2;
+    ReinjectDeadLetter reinject_dead_letter = 3;
+  }
+}
+
+// RunExecution asks the runtime to replay a previously recorded datagram
+// through the live deployment, starting a new tracked execution. For
+// from == "start" it is fanned out to (node_id, port)'s current downstream
+// targets (mirroring the trigger's original emission); for from == "node"
+// it is delivered directly into (node_id, port)'s own inbox (re-running
+// that node and everything downstream of it).
+message RunExecution {
+  string flow_id = 1;
+  string from = 2;  // "start" | "node"
+  string node_id = 3;
+  string port = 4;
+  string datagram_json = 5;
+  string re_run_of = 6;
+}
+
+message CancelExecution {
+  string execution_id = 1;
+}
+
+// ReinjectDeadLetter asks the runtime to deliver a previously dead-lettered
+// datagram back into the node that dead-lettered it (ERR-130), as if it had
+// just arrived normally.
+message ReinjectDeadLetter {
+  string flow_id = 1;
+  string node_id = 2;
+  string port = 3;
+  string datagram_json = 4;
 }

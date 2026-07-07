@@ -26,6 +26,7 @@ import (
 	_ "github.com/1uedev/DataPipe/engine/nodes/convert"
 	_ "github.com/1uedev/DataPipe/engine/nodes/debuglog"
 	_ "github.com/1uedev/DataPipe/engine/nodes/delay"
+	_ "github.com/1uedev/DataPipe/engine/nodes/errortrigger"
 	_ "github.com/1uedev/DataPipe/engine/nodes/filewatch"
 	_ "github.com/1uedev/DataPipe/engine/nodes/filter"
 	_ "github.com/1uedev/DataPipe/engine/nodes/httpin"
@@ -44,6 +45,7 @@ import (
 	_ "github.com/1uedev/DataPipe/engine/nodes/sqlsink"
 	_ "github.com/1uedev/DataPipe/engine/nodes/sqlsource"
 	_ "github.com/1uedev/DataPipe/engine/nodes/state"
+	_ "github.com/1uedev/DataPipe/engine/nodes/stoperror"
 	_ "github.com/1uedev/DataPipe/engine/nodes/switchroute"
 	_ "github.com/1uedev/DataPipe/engine/nodes/template"
 	_ "github.com/1uedev/DataPipe/engine/nodes/trycatch"
@@ -70,6 +72,10 @@ func main() {
 	connResolver := runtimeclient.NewConnectionResolver()
 	deployment.SetConnectionResolver(connResolver)
 
+	eventSink := runtimeclient.NewEventSink()
+	deployment.SetExecutionSink(eventSink)
+	deployment.SetDeadLetterSink(eventSink)
+
 	httpServer := &http.Server{Addr: httpAddr, Handler: healthSrv.Handler()}
 	go func() {
 		slog.Info("runtime health endpoint listening", "addr", httpAddr)
@@ -91,7 +97,7 @@ func main() {
 	}()
 
 	go func() {
-		err := runtimeclient.Run(ctx, controlPlaneAddr, runtimeID, version, healthSrv.SetReady, applyDeploy(deployment), debugSink, deployment, connResolver)
+		err := runtimeclient.Run(ctx, controlPlaneAddr, runtimeID, version, healthSrv.SetReady, applyDeploy(deployment), debugSink, deployment, connResolver, eventSink, deployment)
 		if err != nil && ctx.Err() == nil {
 			slog.Error("runtime client stopped unexpectedly", "error", err)
 		}
@@ -109,12 +115,21 @@ func main() {
 // swapping only the affected nodes (ENG-140). Errors are logged, not
 // fatal — a bad deploy push must never take the runtime down (ARC-150).
 func applyDeploy(deployment *flow.Deployment) runtimeclient.DeployHandler {
-	return func(ctx context.Context, flowID string, ver int64, flowJSON string) {
+	return func(ctx context.Context, flowID string, ver int64, flowJSON, defaultErrorFlow string) {
 		ff, err := flow.Parse([]byte(flowJSON))
 		if err != nil {
 			slog.Error("received undeployable flow: parse failed", "flowId", flowID, "version", ver, "error", err)
 			return
 		}
+		// The control plane is the authority on "which flow this is" for
+		// every REST route and WebSocket subscription (its own row id, not
+		// necessarily the flow file's own "id" field, which is author-chosen
+		// and has no reason to match). Deployment tags every debug/execution
+		// event it reports with FlowFile.ID, so that has to be the
+		// control-plane id too, or DBG-100/DBG-140 subscriptions and
+		// GET .../executions would key against a value nothing ever reports.
+		ff.ID = flowID
+		deployment.SetDefaultErrorFlow(defaultErrorFlow)
 		if err := deployment.Deploy(ctx, ff); err != nil {
 			slog.Error("deploy failed", "flowId", flowID, "version", ver, "error", err)
 			return

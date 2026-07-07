@@ -115,7 +115,7 @@ func TestERR100_RetrySucceedsWithinMaxAttempts(t *testing.T) {
 	}
 	proc := &flakyProcessor{failCount: 2}
 
-	r.handle(context.Background(), testDgm(1), proc.Process)
+	r.handle(context.Background(), "in", testDgm(1), proc.Process)
 
 	if got := proc.calls.Load(); got != 3 {
 		t.Fatalf("processor called %d times, want 3 (2 failures + 1 success)", got)
@@ -143,7 +143,7 @@ func TestERR100_RetryGivesUpAfterMax(t *testing.T) {
 	}
 	proc := &flakyProcessor{failCount: 100}
 
-	r.handle(context.Background(), testDgm(1), proc.Process)
+	r.handle(context.Background(), "in", testDgm(1), proc.Process)
 
 	if got := proc.calls.Load(); got != 3 { // 1 initial + 2 retries
 		t.Fatalf("processor called %d times, want 3 (initial + max 2 retries)", got)
@@ -170,7 +170,7 @@ func TestERR100_ErrorPortRoutesOriginalAndErrorInfo(t *testing.T) {
 	}
 
 	in := testDgm(7)
-	r.handle(context.Background(), in, alwaysFailProcessor{}.Process)
+	r.handle(context.Background(), "in", in, alwaysFailProcessor{}.Process)
 
 	out, err := errWire.Receive(context.Background())
 	if err != nil {
@@ -206,7 +206,7 @@ func TestERR100_DiscardDropsSilentlyWithoutOutput(t *testing.T) {
 		outputs:     map[string]*bus.FanOut{},
 		errorPolicy: &ErrorPolicy{OnError: "discard"},
 	}
-	r.handle(context.Background(), testDgm(1), alwaysFailProcessor{}.Process)
+	r.handle(context.Background(), "in", testDgm(1), alwaysFailProcessor{}.Process)
 	if got := r.metrics.Errors.Load(); got != 1 {
 		t.Errorf("Errors = %d, want 1", got)
 	}

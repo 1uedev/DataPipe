@@ -153,6 +153,14 @@ export default function FlowEditor() {
           </span>
         </div>
         <div className="flex items-center gap-1.5">
+          {flow.content.mode === 'triggered' && (
+            <Link to={`/projects/${projectId}/flows/${flowId}/executions`} className="rounded border border-(--color-border) px-2 py-1">
+              {t('executions.title')}
+            </Link>
+          )}
+          <Link to={`/projects/${projectId}/flows/${flowId}/dead-letters`} className="rounded border border-(--color-border) px-2 py-1">
+            {t('deadLetters.title')}
+          </Link>
           <button onClick={undo} disabled={!canUndo} className="rounded border border-(--color-border) px-2 py-1 disabled:opacity-40">
             {t('editor.undo')}
           </button>

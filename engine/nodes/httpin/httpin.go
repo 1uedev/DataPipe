@@ -13,6 +13,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -48,6 +49,7 @@ const configSchema = `{
 func init() {
 	flow.Register("http-in", flow.NodeTypeInfo{
 		Kind:         flow.KindSource,
+		Trigger:      true, // each HTTP request becomes a tracked execution (ENG-100/ENG-130)
 		Outputs:      []string{"out"},
 		DisplayName:  "HTTP In",
 		Category:     flow.CategorySource,
@@ -73,6 +75,10 @@ type Config struct {
 }
 
 type node struct{ cfg Config }
+
+// TriggerKind reports http-in's ENG-130 trigger-kind label ("webhook") for
+// execution-history display (flow.TriggerKindProvider).
+func (n *node) TriggerKind() string { return "webhook" }
 
 // New is the flow.Factory for the "http-in" node type.
 func New(raw json.RawMessage) (any, error) {
@@ -204,6 +210,10 @@ func (n *node) handler(emit func(port string, d datagram.Datagram) error, checkA
 		defer cancel()
 
 		if err := emit("out", d); err != nil {
+			if errors.Is(err, flow.ErrConcurrencyRejected) {
+				http.Error(w, "too many concurrent executions", http.StatusTooManyRequests)
+				return
+			}
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}

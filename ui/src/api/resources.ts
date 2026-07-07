@@ -1,11 +1,16 @@
 import { request } from './client'
 import type {
+  AsyncAccepted,
   AuditEntry,
   Connection,
   ConnectionTestResult,
   CredentialMeta,
+  DeadLetter,
   DebugPin,
   ExecuteNodeResult,
+  Execution,
+  ExecutionDetail,
+  ExecutionStatus,
   Flow,
   FlowFileContent,
   FlowVersion,
@@ -158,4 +163,40 @@ export function loadFullDebugEvent(flowId: string, eventId: string) {
 
 export function previewNode(flowId: string, nodeId: string) {
   return request<PreviewResult>(`/flows/${flowId}/nodes/${nodeId}/preview`, { method: 'POST' })
+}
+
+// --- Increment 8: triggered workflows (ENG-130/DBG-140/ERR-130) ---
+
+export function listExecutions(flowId: string, status?: ExecutionStatus, limit = 50, offset = 0) {
+  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) })
+  if (status) params.set('status', status)
+  return request<Execution[]>(`/flows/${flowId}/executions?${params.toString()}`)
+}
+
+export function getExecution(executionId: string) {
+  return request<ExecutionDetail>(`/executions/${executionId}`)
+}
+
+export function rerunExecution(executionId: string, from: 'start' | 'node', nodeId?: string) {
+  return request<AsyncAccepted>(`/executions/${executionId}/rerun`, {
+    method: 'POST',
+    body: { from, nodeId },
+  })
+}
+
+export function cancelExecution(executionId: string) {
+  return request<AsyncAccepted>(`/executions/${executionId}/cancel`, { method: 'POST' })
+}
+
+export function listDeadLetters(flowId: string, limit = 50, offset = 0) {
+  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) })
+  return request<DeadLetter[]>(`/flows/${flowId}/dead-letters?${params.toString()}`)
+}
+
+export function deleteDeadLetter(deadLetterId: string) {
+  return request<void>(`/dead-letters/${deadLetterId}`, { method: 'DELETE' })
+}
+
+export function reinjectDeadLetter(deadLetterId: string) {
+  return request<AsyncAccepted>(`/dead-letters/${deadLetterId}/reinject`, { method: 'POST' })
 }

@@ -48,6 +48,10 @@ type Settings struct {
 	ErrorFlow          string `json:"errorFlow,omitempty"`
 	GuaranteedDelivery bool   `json:"guaranteedDelivery,omitempty"`
 	MaxConcurrency     *int   `json:"maxConcurrency,omitempty"`
+	// ConcurrencyPolicy is "queue" (default, blocks new triggers until a
+	// slot frees) or "reject" (ENG-130), applied once MaxConcurrency is
+	// reached. Triggered mode only.
+	ConcurrencyPolicy  string `json:"concurrencyPolicy,omitempty"`
 	ExecutionTimeoutMs *int   `json:"executionTimeoutMs,omitempty"`
 }
 

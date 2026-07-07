@@ -32,9 +32,65 @@ type ConnectionResolver interface {
 	ResolveConnection(ctx context.Context, connectionID string) (ConnectionInfo, error)
 }
 
+// ExecutionEvent is one runtime-reported triggered-execution lifecycle
+// event (Increment 8, ENG-130/DBG-140), decoupled from the proto message so
+// controlplane/internal/api's ExecutionStore implementation doesn't need to
+// depend on runtimev1.
+type ExecutionEvent struct {
+	ExecutionID, FlowID, Phase                            string
+	TimeUnixMs                                            int64
+	TriggerNodeID, TriggerKind, ReRunOf, SeedDatagramJSON string
+	NodeID, Port                                          string
+	Attempt                                               int32
+	DurationUs                                            int64
+	InputJSON, OutputsJSON                                string
+	ErrorMessage, ErrorCode, ErrorStack                   string
+	Status, Reason                                        string
+}
+
+// DeadLetterEvent is one runtime-reported dead-lettered datagram
+// (Increment 8, ERR-130).
+type DeadLetterEvent struct {
+	FlowID, NodeID, Port, Reason, DatagramJSON string
+	TimeUnixMs                                 int64
+}
+
+// ExecutionStore persists triggered-execution and dead-letter events
+// (Increment 8) and marks a disconnected runtime's still-open executions
+// crashed (ERR-150). Implemented by controlplane/internal/api.Store; kept
+// as an interface here so registry never depends on api/db.
+type ExecutionStore interface {
+	RecordExecutionEvent(ctx context.Context, runtimeID string, ev ExecutionEvent) error
+	RecordDeadLetter(ctx context.Context, runtimeID string, ev DeadLetterEvent) error
+	MarkRuntimeExecutionsCrashed(ctx context.Context, runtimeID string) error
+}
+
+// DeployedFlowInfo is one currently-deployed flow's canonical content,
+// decoupled from controlplane/internal/api.DeployedFlow so registry never
+// depends on api/db.
+type DeployedFlowInfo struct {
+	FlowID           string
+	Version          int64
+	ContentJSON      string
+	DefaultErrorFlow string
+}
+
+// DeployedFlowsLister answers "what's currently deployed", so a runtime
+// that just (re)registered gets every deployed flow re-pushed automatically
+// (ERR-150: "runtime restart restores all deployed flows... automatically").
+// Implemented (via a small adapter) by controlplane/internal/api.Store.
+type DeployedFlowsLister interface {
+	ListDeployedFlows(ctx context.Context) ([]DeployedFlowInfo, error)
+}
+
 // deployChanBuffer bounds how many pending deploy commands a runtime can
 // have queued before DeployFlow reports it as unavailable.
 const deployChanBuffer = 8
+
+// eventChanBuffer bounds how many pending execution/dead-letter commands a
+// runtime can have queued before SendExecutionCommand reports it as
+// unavailable.
+const eventChanBuffer = 8
 
 type runtimeState struct {
 	kind         runtimev1.RuntimeKind
@@ -42,6 +98,7 @@ type runtimeState struct {
 	sessionToken string
 	lastSeen     time.Time
 	deployCh     chan *runtimev1.DeployStreamResponse // non-nil once DeployStream is open
+	eventCh      chan *runtimev1.EventChannelResponse // non-nil once EventChannel is open
 }
 
 // Service implements runtimev1.RuntimeRegistryServiceServer with an
@@ -50,16 +107,36 @@ type runtimeState struct {
 type Service struct {
 	runtimev1.UnimplementedRuntimeRegistryServiceServer
 
-	mu           sync.Mutex
-	runtimes     map[string]*runtimeState
-	debugHub     *debughub.Hub
-	connResolver ConnectionResolver
+	mu             sync.Mutex
+	runtimes       map[string]*runtimeState
+	debugHub       *debughub.Hub
+	connResolver   ConnectionResolver
+	executionStore ExecutionStore
+	deployedFlows  DeployedFlowsLister
 }
 
 func NewService() *Service {
 	s := &Service{runtimes: make(map[string]*runtimeState)}
 	s.debugHub = debughub.New(s.validSession)
 	return s
+}
+
+// SetExecutionStore wires in the durable store for triggered-execution and
+// dead-letter events (Increment 8). Must be called before any runtime
+// opens its EventChannel.
+func (s *Service) SetExecutionStore(store ExecutionStore) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.executionStore = store
+}
+
+// SetDeployedFlowsLister wires in the source of truth for "what's currently
+// deployed", used to re-push every deployed flow when a runtime's
+// DeployStream opens (ERR-150).
+func (s *Service) SetDeployedFlowsLister(lister DeployedFlowsLister) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.deployedFlows = lister
 }
 
 // DebugHub exposes the live-debugging hub (Increment 5) so the REST/WS
@@ -147,7 +224,12 @@ func (s *Service) Heartbeat(ctx context.Context, req *runtimev1.HeartbeatRequest
 
 // DeployStream is opened by a runtime once, right after Register, and kept
 // open for the runtime's lifetime; DeployFlow pushes into the channel this
-// registers, and every pushed command is forwarded down the stream.
+// registers, and every pushed command is forwarded down the stream. Every
+// currently-deployed flow is queued immediately, before the main loop
+// starts, so a (re)connecting runtime — including one recovering from a
+// crash — has all of them re-pushed automatically without waiting for the
+// next REST deploy (ERR-150: "runtime restart restores all deployed flows
+// and durable state automatically").
 func (s *Service) DeployStream(req *runtimev1.DeployStreamRequest, stream runtimev1.RuntimeRegistryService_DeployStreamServer) error {
 	runtimeID := req.GetRuntimeId()
 
@@ -159,6 +241,7 @@ func (s *Service) DeployStream(req *runtimev1.DeployStreamRequest, stream runtim
 	}
 	ch := make(chan *runtimev1.DeployStreamResponse, deployChanBuffer)
 	rt.deployCh = ch
+	lister := s.deployedFlows
 	s.mu.Unlock()
 
 	defer func() {
@@ -168,6 +251,18 @@ func (s *Service) DeployStream(req *runtimev1.DeployStreamRequest, stream runtim
 		}
 		s.mu.Unlock()
 	}()
+
+	if lister != nil {
+		flows, err := lister.ListDeployedFlows(stream.Context())
+		if err == nil {
+			for _, f := range flows {
+				select {
+				case ch <- &runtimev1.DeployStreamResponse{FlowId: f.FlowID, Version: f.Version, FlowJson: f.ContentJSON, DefaultErrorFlow: f.DefaultErrorFlow}:
+				default:
+				}
+			}
+		}
+	}
 
 	for {
 		select {
@@ -185,8 +280,9 @@ func (s *Service) DeployStream(req *runtimev1.DeployStreamRequest, stream runtim
 // flow to every currently connected runtime with an open DeployStream.
 // Runtime-group assignment (Flow-File-Format.md's runtimeAssignment,
 // UI-220) is deferred to the fleet-management work of Increment 9 — for
-// now every connected runtime receives every deploy.
-func (s *Service) DeployFlow(ctx context.Context, flowID string, version int64, flowJSON string) error {
+// now every connected runtime receives every deploy. defaultErrorFlow is
+// the owning project's ERR-120 fallback error-handler flow id.
+func (s *Service) DeployFlow(ctx context.Context, flowID string, version int64, flowJSON, defaultErrorFlow string) error {
 	s.mu.Lock()
 	var channels []chan *runtimev1.DeployStreamResponse
 	for _, rt := range s.runtimes {
@@ -200,7 +296,7 @@ func (s *Service) DeployFlow(ctx context.Context, flowID string, version int64, 
 		return fmt.Errorf("no runtime currently connected")
 	}
 
-	cmd := &runtimev1.DeployStreamResponse{FlowId: flowID, Version: version, FlowJson: flowJSON}
+	cmd := &runtimev1.DeployStreamResponse{FlowId: flowID, Version: version, FlowJson: flowJSON, DefaultErrorFlow: defaultErrorFlow}
 	for _, ch := range channels {
 		select {
 		case ch <- cmd:
@@ -211,6 +307,163 @@ func (s *Service) DeployFlow(ctx context.Context, flowID string, version int64, 
 		}
 	}
 	return nil
+}
+
+// EventChannel is opened by a runtime once, right after Register, and kept
+// open for the runtime's lifetime (Increment 8, ENG-130/DBG-140/ERR-130):
+// the runtime durably reports every triggered-execution lifecycle event and
+// dead-lettered datagram, and RunExecution/CancelExecution/
+// ReinjectDeadLetter push commands back down the same stream. Only one
+// goroutine ever calls stream.Send (this loop) and only one calls
+// stream.Recv (the uplink goroutine below), matching grpc-go's
+// one-goroutine-per-direction safety requirement.
+func (s *Service) EventChannel(stream runtimev1.RuntimeRegistryService_EventChannelServer) error {
+	hello, err := stream.Recv()
+	if err != nil {
+		return err
+	}
+	if !s.validSession(hello.GetRuntimeId(), hello.GetSessionToken()) {
+		return fmt.Errorf("unknown runtime or session")
+	}
+	runtimeID := hello.GetRuntimeId()
+
+	s.mu.Lock()
+	rt, ok := s.runtimes[runtimeID]
+	if !ok {
+		s.mu.Unlock()
+		return fmt.Errorf("unknown runtime")
+	}
+	ch := make(chan *runtimev1.EventChannelResponse, eventChanBuffer)
+	rt.eventCh = ch
+	executionStore := s.executionStore
+	s.mu.Unlock()
+
+	defer func() {
+		s.mu.Lock()
+		if cur, ok := s.runtimes[runtimeID]; ok && cur.eventCh == ch {
+			cur.eventCh = nil
+		}
+		s.mu.Unlock()
+		// A runtime whose EventChannel just closed (crash, restart, network
+		// loss) can no longer be running whatever executions it last
+		// reported as running/waiting (ERR-150).
+		if executionStore != nil {
+			_ = executionStore.MarkRuntimeExecutionsCrashed(context.Background(), runtimeID)
+		}
+	}()
+
+	s.handleEventUplink(runtimeID, hello)
+
+	recvErr := make(chan error, 1)
+	go func() {
+		for {
+			req, err := stream.Recv()
+			if err != nil {
+				recvErr <- err
+				return
+			}
+			s.handleEventUplink(runtimeID, req)
+		}
+	}()
+
+	for {
+		select {
+		case cmd := <-ch:
+			if err := stream.Send(cmd); err != nil {
+				return err
+			}
+		case err := <-recvErr:
+			return err
+		case <-stream.Context().Done():
+			return stream.Context().Err()
+		}
+	}
+}
+
+func (s *Service) handleEventUplink(runtimeID string, req *runtimev1.EventChannelRequest) {
+	s.mu.Lock()
+	store := s.executionStore
+	s.mu.Unlock()
+	if store == nil {
+		return
+	}
+	ctx := context.Background()
+	switch p := req.GetPayload().(type) {
+	case *runtimev1.EventChannelRequest_ExecutionEvent:
+		e := p.ExecutionEvent
+		_ = store.RecordExecutionEvent(ctx, runtimeID, ExecutionEvent{
+			ExecutionID: e.GetExecutionId(), FlowID: e.GetFlowId(), Phase: e.GetPhase(), TimeUnixMs: e.GetTimeUnixMs(),
+			TriggerNodeID: e.GetTriggerNodeId(), TriggerKind: e.GetTriggerKind(), ReRunOf: e.GetReRunOf(), SeedDatagramJSON: e.GetSeedDatagramJson(),
+			NodeID: e.GetNodeId(), Port: e.GetPort(), Attempt: e.GetAttempt(), DurationUs: e.GetDurationUs(),
+			InputJSON: e.GetInputJson(), OutputsJSON: e.GetOutputsJson(),
+			ErrorMessage: e.GetErrorMessage(), ErrorCode: e.GetErrorCode(), ErrorStack: e.GetErrorStack(),
+			Status: e.GetStatus(), Reason: e.GetReason(),
+		})
+	case *runtimev1.EventChannelRequest_DeadLetterEvent:
+		e := p.DeadLetterEvent
+		_ = store.RecordDeadLetter(ctx, runtimeID, DeadLetterEvent{
+			FlowID: e.GetFlowId(), NodeID: e.GetNodeId(), Port: e.GetPort(), Reason: e.GetReason(),
+			DatagramJSON: e.GetDatagramJson(), TimeUnixMs: e.GetTimeUnixMs(),
+		})
+	}
+}
+
+// sendExecutionCommand pushes cmd to every runtime with an open
+// EventChannel. Runtime-group targeting (like DeployFlow's) is deferred to
+// Increment 9 — today every connected runtime receives every command, which
+// is harmless since a command referencing a flow/execution/dead-letter id
+// that runtime doesn't actually hold simply fails to find it and no-ops.
+func (s *Service) sendExecutionCommand(ctx context.Context, cmd *runtimev1.EventChannelResponse) error {
+	s.mu.Lock()
+	var channels []chan *runtimev1.EventChannelResponse
+	for _, rt := range s.runtimes {
+		if rt.eventCh != nil {
+			channels = append(channels, rt.eventCh)
+		}
+	}
+	s.mu.Unlock()
+
+	if len(channels) == 0 {
+		return fmt.Errorf("no runtime currently connected")
+	}
+	for _, ch := range channels {
+		select {
+		case ch <- cmd:
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			return fmt.Errorf("runtime event command queue full")
+		}
+	}
+	return nil
+}
+
+// RunExecution implements controlplane/internal/api.ExecutionCommander
+// (DBG-140 re-run).
+func (s *Service) RunExecution(ctx context.Context, flowID, from, nodeID, port, datagramJSON, reRunOf string) error {
+	return s.sendExecutionCommand(ctx, &runtimev1.EventChannelResponse{
+		Payload: &runtimev1.EventChannelResponse_RunExecution{RunExecution: &runtimev1.RunExecution{
+			FlowId: flowID, From: from, NodeId: nodeID, Port: port, DatagramJson: datagramJSON, ReRunOf: reRunOf,
+		}},
+	})
+}
+
+// CancelExecution implements controlplane/internal/api.ExecutionCommander
+// (ENG-130).
+func (s *Service) CancelExecution(ctx context.Context, executionID string) error {
+	return s.sendExecutionCommand(ctx, &runtimev1.EventChannelResponse{
+		Payload: &runtimev1.EventChannelResponse_CancelExecution{CancelExecution: &runtimev1.CancelExecution{ExecutionId: executionID}},
+	})
+}
+
+// ReinjectDeadLetter implements controlplane/internal/api.ExecutionCommander
+// (ERR-130).
+func (s *Service) ReinjectDeadLetter(ctx context.Context, flowID, nodeID, port, datagramJSON string) error {
+	return s.sendExecutionCommand(ctx, &runtimev1.EventChannelResponse{
+		Payload: &runtimev1.EventChannelResponse_ReinjectDeadLetter{ReinjectDeadLetter: &runtimev1.ReinjectDeadLetter{
+			FlowId: flowID, NodeId: nodeID, Port: port, DatagramJson: datagramJSON,
+		}},
+	})
 }
 
 // RuntimeSnapshot is a read-only view of one registered runtime, for the

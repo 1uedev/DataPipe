@@ -30,9 +30,19 @@ type rowScanner interface {
 
 // Deployer pushes a flow version to whichever runtime it's assigned to
 // (Increment 3's deploy orchestration); implemented by
-// controlplane/internal/registry.
+// controlplane/internal/registry. defaultErrorFlow is the owning project's
+// ERR-120 fallback error-handler flow id (Increment 8), "" if none.
 type Deployer interface {
-	DeployFlow(ctx context.Context, flowID string, version int64, flowJSON string) error
+	DeployFlow(ctx context.Context, flowID string, version int64, flowJSON, defaultErrorFlow string) error
+}
+
+// ExecutionCommander issues runtime-bound commands for triggered
+// executions (Increment 8, ENG-130/DBG-140/ERR-130); implemented by
+// controlplane/internal/registry.
+type ExecutionCommander interface {
+	RunExecution(ctx context.Context, flowID, from, nodeID, port, datagramJSON, reRunOf string) error
+	CancelExecution(ctx context.Context, executionID string) error
+	ReinjectDeadLetter(ctx context.Context, flowID, nodeID, port, datagramJSON string) error
 }
 
 // RuntimeInfo is the read-only fleet view (GET /runtimes).
@@ -58,14 +68,15 @@ type Handlers struct {
 	deployer  Deployer
 	runtimes  RuntimeLister
 	debugHub  *debughub.Hub
+	commander ExecutionCommander
 	logger    *slog.Logger
 }
 
-func NewHandlers(store *Store, authStore *auth.Store, vault *crypto.Vault, auditLog *audit.Log, deployer Deployer, runtimes RuntimeLister, debugHub *debughub.Hub, logger *slog.Logger) *Handlers {
+func NewHandlers(store *Store, authStore *auth.Store, vault *crypto.Vault, auditLog *audit.Log, deployer Deployer, runtimes RuntimeLister, debugHub *debughub.Hub, commander ExecutionCommander, logger *slog.Logger) *Handlers {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Handlers{store: store, authStore: authStore, vault: vault, auditLog: auditLog, deployer: deployer, runtimes: runtimes, debugHub: debugHub, logger: logger}
+	return &Handlers{store: store, authStore: authStore, vault: vault, auditLog: auditLog, deployer: deployer, runtimes: runtimes, debugHub: debugHub, commander: commander, logger: logger}
 }
 
 // audit records a SEC-140 entry; a failure here is logged but never fails
@@ -126,6 +137,14 @@ func (h *Handlers) Routes() http.Handler {
 	protected.HandleFunc("PUT /flows/{flowId}/nodes/{nodeId}/pins/{port}", h.upsertPin)
 	protected.HandleFunc("DELETE /flows/{flowId}/nodes/{nodeId}/pins/{port}", h.deletePin)
 	protected.HandleFunc("GET /flows/{flowId}/debug/events/{eventId}", h.loadFullDebugEvent)
+
+	protected.HandleFunc("GET /flows/{flowId}/executions", h.listExecutions)
+	protected.HandleFunc("GET /executions/{executionId}", h.getExecution)
+	protected.HandleFunc("POST /executions/{executionId}/rerun", h.rerunExecution)
+	protected.HandleFunc("POST /executions/{executionId}/cancel", h.cancelExecution)
+	protected.HandleFunc("GET /flows/{flowId}/dead-letters", h.listDeadLetters)
+	protected.HandleFunc("DELETE /dead-letters/{deadLetterId}", h.deleteDeadLetter)
+	protected.HandleFunc("POST /dead-letters/{deadLetterId}/reinject", h.reinjectDeadLetter)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /auth/login", h.login)

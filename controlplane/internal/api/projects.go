@@ -21,6 +21,10 @@ type Project struct {
 	Name        string    `json:"name"`
 	Description string    `json:"description"`
 	CreatedAt   time.Time `json:"createdAt"`
+	// DefaultErrorFlow is ERR-120's project-wide default error-handler flow
+	// id, used when a flow has no settings.errorFlow of its own; nil if
+	// unset.
+	DefaultErrorFlow *string `json:"defaultErrorFlow"`
 }
 
 func (s *Store) CreateProject(ctx context.Context, name, description string) (*Project, error) {
@@ -34,7 +38,7 @@ func (s *Store) CreateProject(ctx context.Context, name, description string) (*P
 }
 
 func (s *Store) GetProject(ctx context.Context, id string) (*Project, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, name, description, created_at FROM projects WHERE id = ?`, id)
+	row := s.db.QueryRowContext(ctx, `SELECT id, name, description, created_at, default_error_flow FROM projects WHERE id = ?`, id)
 	return scanProject(row)
 }
 
@@ -44,10 +48,10 @@ func (s *Store) ListProjectsForUser(ctx context.Context, user *auth.User) ([]*Pr
 	var rows *sql.Rows
 	var err error
 	if user.SystemRole == auth.SystemRoleAdmin {
-		rows, err = s.db.QueryContext(ctx, `SELECT id, name, description, created_at FROM projects ORDER BY name`)
+		rows, err = s.db.QueryContext(ctx, `SELECT id, name, description, created_at, default_error_flow FROM projects ORDER BY name`)
 	} else {
 		rows, err = s.db.QueryContext(ctx,
-			`SELECT p.id, p.name, p.description, p.created_at FROM projects p
+			`SELECT p.id, p.name, p.description, p.created_at, p.default_error_flow FROM projects p
 			 JOIN project_members m ON m.project_id = p.id
 			 WHERE m.user_id = ? ORDER BY p.name`, user.ID)
 	}
@@ -67,7 +71,7 @@ func (s *Store) ListProjectsForUser(ctx context.Context, user *auth.User) ([]*Pr
 	return projects, rows.Err()
 }
 
-func (s *Store) UpdateProject(ctx context.Context, id string, name, description *string) (*Project, error) {
+func (s *Store) UpdateProject(ctx context.Context, id string, name, description, defaultErrorFlow *string) (*Project, error) {
 	p, err := s.GetProject(ctx, id)
 	if err != nil {
 		return nil, err
@@ -78,7 +82,15 @@ func (s *Store) UpdateProject(ctx context.Context, id string, name, description 
 	if description != nil {
 		p.Description = *description
 	}
-	_, err = s.db.ExecContext(ctx, `UPDATE projects SET name = ?, description = ? WHERE id = ?`, p.Name, p.Description, p.ID)
+	if defaultErrorFlow != nil {
+		if *defaultErrorFlow == "" {
+			p.DefaultErrorFlow = nil
+		} else {
+			p.DefaultErrorFlow = defaultErrorFlow
+		}
+	}
+	_, err = s.db.ExecContext(ctx, `UPDATE projects SET name = ?, description = ?, default_error_flow = ? WHERE id = ?`,
+		p.Name, p.Description, p.DefaultErrorFlow, p.ID)
 	if err != nil {
 		return nil, fmt.Errorf("api: updating project: %w", err)
 	}
@@ -93,7 +105,8 @@ func (s *Store) DeleteProject(ctx context.Context, id string) error {
 func scanProject(row rowScanner) (*Project, error) {
 	var p Project
 	var createdAt string
-	if err := row.Scan(&p.ID, &p.Name, &p.Description, &createdAt); err != nil {
+	var defaultErrorFlow sql.NullString
+	if err := row.Scan(&p.ID, &p.Name, &p.Description, &createdAt, &defaultErrorFlow); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, sql.ErrNoRows
 		}
@@ -104,6 +117,9 @@ func scanProject(row rowScanner) (*Project, error) {
 		return nil, fmt.Errorf("api: parsing created_at: %w", err)
 	}
 	p.CreatedAt = t
+	if defaultErrorFlow.Valid {
+		p.DefaultErrorFlow = &defaultErrorFlow.String
+	}
 	return &p, nil
 }
 
@@ -187,14 +203,15 @@ func (h *Handlers) updateProject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Name        *string `json:"name"`
-		Description *string `json:"description"`
+		Name             *string `json:"name"`
+		Description      *string `json:"description"`
+		DefaultErrorFlow *string `json:"defaultErrorFlow"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	after, err := h.store.UpdateProject(r.Context(), id, req.Name, req.Description)
+	after, err := h.store.UpdateProject(r.Context(), id, req.Name, req.Description, req.DefaultErrorFlow)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return

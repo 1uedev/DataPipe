@@ -42,7 +42,8 @@ func Validate(f *FlowFile) error {
 	}
 
 	wireIDs := make(map[string]bool, len(f.Graph.Wires))
-	hasSource := false
+	hasSource := false  // plain streaming source (ENG-100)
+	hasTrigger := false // trigger node (ENG-100/ENG-130)
 
 	nodeInfo := make(map[string]NodeTypeInfo, len(f.Graph.Nodes))
 	nodeOutputs := make(map[string][]string, len(f.Graph.Nodes))
@@ -54,7 +55,11 @@ func Validate(f *FlowFile) error {
 		}
 		nodeInfo[n.ID] = info
 		if info.Kind == KindSource {
-			hasSource = true
+			if info.Trigger {
+				hasTrigger = true
+			} else {
+				hasSource = true
+			}
 		}
 
 		// Rule 3: config must validate against the node type's JSON Schema
@@ -97,10 +102,17 @@ func Validate(f *FlowFile) error {
 		})
 	}
 
-	if f.Mode == "" {
+	switch {
+	case f.Mode == "":
 		add("mode is required (ENG-100)")
-	} else if hasSource && f.Mode != ModeStreaming {
+	case hasSource && hasTrigger:
+		add("flow mixes a streaming source node with a trigger node as entry points; mixed entry types are rejected (ENG-100 §7 rule 4)")
+	case hasSource && f.Mode != ModeStreaming:
 		add("flow contains a source node but mode is %q, want %q (ENG-100)", f.Mode, ModeStreaming)
+	case hasTrigger && f.Mode != ModeTriggered:
+		add("flow contains a trigger node but mode is %q, want %q (ENG-100)", f.Mode, ModeTriggered)
+	case f.Mode == ModeTriggered && !hasTrigger:
+		add("triggered flows must start with a trigger node (ENG-100 §7 rule 4)")
 	}
 
 	if len(problems) > 0 {

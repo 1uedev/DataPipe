@@ -1,0 +1,44 @@
+{
+  "formatVersion": 1,
+  "kind": "flow",
+  "id": "flow_webhook_divide_demo",
+  "name": "Webhook divide (triggered) demo",
+  "description": "Development-Plan Increment 8 walkthrough: a webhook-triggered workflow (ENG-130) whose script node fails on division by zero (ERR-100), producing inspectable execution history (DBG-140) and a dead letter (ERR-130) that can be re-run after the request is fixed.",
+  "mode": "triggered",
+  "settings": {
+    "maxConcurrency": 5,
+    "concurrencyPolicy": "queue",
+    "executionTimeoutMs": 5000
+  },
+  "graph": {
+    "nodes": [
+      {
+        "id": "n1",
+        "type": "http-in",
+        "typeVersion": 1,
+        "name": "POST /hooks/divide",
+        "config": { "path": "/hooks/divide", "method": "POST" }
+      },
+      {
+        "id": "n2",
+        "type": "script",
+        "typeVersion": 1,
+        "name": "Divide 100 by request divisor",
+        "config": {
+          "code": "var body = JSON.parse(payload.body); if (body.divisor === 0) { throw new Error('division by zero'); } ({ result: 100 / body.divisor });"
+        }
+      },
+      {
+        "id": "n3",
+        "type": "http-response",
+        "typeVersion": 1,
+        "name": "Reply with result",
+        "config": { "status": 200 }
+      }
+    ],
+    "wires": [
+      { "id": "w1", "from": { "node": "n1", "port": "out" }, "to": { "node": "n2", "port": "in" } },
+      { "id": "w2", "from": { "node": "n2", "port": "out" }, "to": { "node": "n3", "port": "in" } }
+    ]
+  }
+}

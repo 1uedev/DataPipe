@@ -15,6 +15,12 @@
         "cd controlplane && DATABASE_URL=':memory:' DATAPIPE_MASTER_KEY='eAJnhEm7voO8IaadQktJOtnsL7eQaMK4hzSF5EW2fUE=' DATAPIPE_ADMIN_PASSWORD='admin-devpass' go run ./cmd/controlplane"
       ],
       "port": 8080
+    },
+    {
+      "name": "runtime-dev",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-lc", "cd engine && go run ./cmd/runtime"],
+      "port": 8081
     }
   ]
 }

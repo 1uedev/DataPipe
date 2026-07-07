@@ -1,11 +1,11 @@
 # DataPipe — User Guide
 
-**Covers:** development state after Increment 6 (live debugging + first real connectors) · **Audience:** flow authors and viewers
+**Covers:** development state after Increment 8 (triggered workflows) · **Audience:** flow authors and viewers
 **Status note:** DataPipe is under active development. This guide describes what works today; features from the specification that are not built yet are marked *coming soon*.
 
 ## 1. What DataPipe is
 
-DataPipe is a web-based visual data flow platform. You build flows by dragging nodes onto a canvas, wiring them together, and deploying them to a runtime that executes them continuously. As of Increment 6 you can build real pipelines: MQTT, HTTP/webhooks, schedules, file watching, and PostgreSQL are connected, and you can watch live data flow through every node in the editor.
+DataPipe is a web-based visual data flow platform. You build flows by dragging nodes onto a canvas, wiring them together, and deploying them to a runtime. A flow's **mode** is determined by its entry nodes: flows starting with a plain source (MQTT In, Schedule, ...) run continuously (**streaming**); flows starting with a trigger node (HTTP In, Error Trigger) start one tracked, inspectable **execution** per event. Both are supported, and a rich processor library (script sandbox, calculator, window/aggregate, routing, error handling) sits between connectors either way.
 
 ## 2. Signing in
 
@@ -34,17 +34,35 @@ The palette on the left lists all node types, grouped by category and color code
 | **Inject** | Source | Emits a configurable test datagram, once or on an interval |
 | **Schedule** | Source | Time trigger: fixed interval or cron expression |
 | **MQTT In** | Source | Subscribes to broker topics (wildcards, QoS); uses an MQTT connection |
-| **HTTP In** | Source | Exposes a webhook endpoint; each request becomes a datagram |
 | **File Watcher** | Source | Watches directories (recursive) and parses CSV/TSV (delimiter, header, encoding), JSON, and JSON Lines; post-actions: keep/marker/move/rename/delete |
 | **SQL Source** | Source | PostgreSQL queries: one-shot, periodic, or incremental with a watermark column |
 | **Bus In** | Source | Subscribes to named internal bus topics (MQTT-style `+`/`#` wildcards, tag filters) |
+| **HTTP In** | Trigger | Exposes a webhook endpoint; each request starts a tracked **execution** (see §5.1) |
+| **Error Trigger** | Trigger | Entry point of a flow-level error-handler flow (see §5.3); each unhandled error elsewhere starts a tracked execution here |
 | **Set** | Processor | Sets/changes payload fields declaratively |
+| **Script** | Processor | Sandboxed JavaScript with full read/write access to the datagram and node/flow/global state |
+| **Convert** | Processor | JSON ⇄ XML ⇄ CSV ⇄ binary/base64 conversions |
+| **Template** | Processor | Renders text (strings, SQL, reports) from `{{ expr }}` placeholders |
+| **Calculator** | Processor | Evaluates a numeric/string expression against the payload |
+| **Window/Aggregate** | Processor | Tumbling/sliding/session windows with sum/mean/min/max/etc. |
+| **Switch** | Processor | Routes to one of several dynamic output ports by rule |
+| **Filter** | Processor | Passes or drops based on a condition or deadband |
+| **Merge/Join** | Processor | Combines two named input branches (`a`/`b`) |
+| **Split/Batch** | Processor | Splits an array into items, or batches items by size/count/interval |
+| **Loop** | Processor | Iterates a collection through a designated loop-back wire |
+| **Delay/Throttle** | Processor | Delays or rate-limits datagrams |
+| **Try/Catch** | Processor | Wraps another node type, routing its errors to a `catch` port |
+| **Lookup** | Processor | Looks up a value (static table or HTTP call) with a cache |
+| **State** | Processor | Reads/writes node/flow/global context store values |
+| **Stop and Error** | Processor | Deliberately fails the execution with a structured message/code (see §5.2) |
 | **HTTP Request** | Processor/Sink | Generic REST client: request per datagram, response merged into the flow |
 | **Debug Log** | Sink | Pushes selected values to the debug sidebar (optionally also the runtime console) |
 | **MQTT Out** | Sink | Publishes with QoS/retain; topic can be templated |
 | **HTTP Response** | Sink | Replies to the exact HTTP In request that produced the datagram |
 | **SQL Sink** | Sink | Postgres insert/upsert/update/delete/exec, transactional per batch, RETURNING merged back |
 | **Bus Out** | Sink | Publishes to named internal bus topics — flow-to-flow handoff |
+
+Any string config field can be an expression: `={{ payload.value * 2 }}` (whole value) or `"line-{{tags.line}}"` (mixed template) — see the [Expression Language](Expression-Language.md) reference.
 
 ### 4.3 Wiring, configuring, editing
 
@@ -70,15 +88,39 @@ This is DataPipe's Node-RED-style core experience, available since Increment 5. 
 
 **Live wires**: while you watch, wires pulse as datagrams pass and show delivered/dropped counters. At high rates the display is sampled to keep the UI responsive, but the counters remain exact.
 
-## 6. A realistic example
+## 6. Triggered workflows
 
-`examples/mqtt-sensor-to-postgres.flow.json` in the repository is an importable demo: MQTT In (sensor topic) → Set (shape the record) → SQL Sink (insert into Postgres). Create an MQTT and a Postgres connection in your project, test both, load the flow, point the nodes at your connections, use Fetch sample / the Inspector to see real readings, then deploy.
+A flow that starts with a **trigger** node (currently HTTP In or Error Trigger) is a **triggered** flow: every trigger fire starts one independently tracked **execution**, browsable after the fact — this is the n8n-style half of DataPipe, alongside streaming.
 
-## 7. Current limitations (honest list)
+### 6.1 Execution history
 
-* Processor library is minimal: Set and HTTP Request only. Script node, calculator, window/aggregate, switch/filter/merge/split, and the full expression function library are next (Increment 7).
-* Streaming flows only — triggered workflows with execution history and re-run come with Increment 8.
-* No flow-level error flows or dead-letter view yet; per-node error policies (retry, error port, discard) exist in the engine.
+Open a triggered flow and click **Executions** in its header to see every run: status (running/waiting/success/failed/cancelled/crashed), trigger kind, duration, and — for a failed one — the error reason. Click into an execution for its full per-node trace: every node it passed through, with the exact input and output(s) it produced, and the structured error object (message/code/stack) for whichever node failed. Requires the Viewer role or higher (same payload-visibility rule as the live inspector).
+
+### 6.2 Re-running after a fix
+
+From an execution's detail view: **Re-run from start** replays the trigger's own recorded output through the flow again; **Re-run from this node** (shown on the node that failed) replays only *that* node's recorded input, so everything upstream of it is skipped. Either starts a brand-new execution (visible in the list, linked back via "re-run of ..."), so you can fix a bug (edit the node, deploy) and confirm the exact request that used to fail now succeeds — without needing to reproduce it externally. Requires the Operator role or higher.
+
+**Cancel** stops tracking a still-running or queued execution. It does not forcibly interrupt whatever node is currently processing (a documented limitation) — it marks the execution cancelled and frees its concurrency slot for the next one.
+
+### 6.3 Concurrency, timeouts, and dead letters
+
+A triggered flow's Settings can cap how many executions run at once (`maxConcurrency`) and choose what happens once that cap is hit: **queue** (new triggers wait for a slot, the default) or **reject** (HTTP In answers with 429 immediately). `executionTimeoutMs` marks a runaway execution failed after that many milliseconds and frees its slot, without forcibly stopping the node still running underneath it.
+
+A datagram a node couldn't deliver — its error policy resolved to "fail" or "discard" after retries, or its TTL expired before a node got to it — is captured as a **dead letter** instead of silently vanishing. Click **Dead Letters** in a flow's header (available for any flow, streaming or triggered) to browse them and **re-inject** one back into the node that dropped it, once you've fixed the underlying issue, or **delete** it if it's no longer relevant.
+
+### 6.4 Flow-level error handling
+
+Instead of (or alongside) a per-node error port, you can designate a whole flow as the error handler for another one: build a flow starting with an **Error Trigger** node configured with the target flow's id (or `*` for every flow in the project without its own override), and it receives one execution per unhandled node error elsewhere — the same `{original, error}` shape ERR-100's error port produces. Set it as a flow's `settings.errorFlow` or as your project's default error flow (project settings). *Current limitation:* this only delivers when both flows are deployed to the same runtime process (today's control plane doesn't yet support routing one runtime's error to a handler flow running elsewhere).
+
+## 7. A realistic example
+
+`examples/mqtt-sensor-to-postgres.flow.json` is a streaming demo: MQTT In (sensor topic) → Set (shape the record) → SQL Sink (insert into Postgres). `examples/webhook-divide-triggered.flow.json` is a triggered demo showing the whole story above: HTTP In → Script (divides two numbers from the request, deliberately throws on division by zero) → HTTP Response — POST a zero divisor, watch the failed execution and its dead letter appear, fix the script, redeploy, and re-run the failed request from the Executions view to confirm it now succeeds.
+
+## 8. Current limitations (honest list)
+
 * No subflows, visual groups, or sticky notes yet.
 * Deploys go to all connected runtimes; per-runtime/edge targeting comes with fleet management (Increment 9).
 * Industrial connectors beyond MQTT (OPC-UA, Modbus, Kafka, SECS/GEM) are scheduled for Increments 10–11.
+* Only HTTP In and Error Trigger are trigger nodes today; a "Cron Trigger" (one tracked execution per schedule tick, distinct from the always-on Schedule source) is a natural future addition.
+* Cancelling a running execution, or an execution hitting its timeout, does not forcibly stop the node goroutine still processing underneath it — it stops being tracked and its concurrency slot frees, but very long-running node work keeps running to completion.
+* The Executions and Dead Letters views are per-flow only; there is no project-wide "everything that failed today" view yet.

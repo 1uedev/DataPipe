@@ -19,8 +19,10 @@ import (
 const heartbeatInterval = 10 * time.Second
 const deployStreamRetryDelay = 2 * time.Second
 
-// DeployHandler applies one pushed flow deployment.
-type DeployHandler func(ctx context.Context, flowID string, version int64, flowJSON string)
+// DeployHandler applies one pushed flow deployment. defaultErrorFlow is the
+// owning project's ERR-120 fallback error-handler flow id (Increment 8),
+// "" if none is configured.
+type DeployHandler func(ctx context.Context, flowID string, version int64, flowJSON, defaultErrorFlow string)
 
 // Run dials addr and keeps the runtime registered until ctx is cancelled.
 // onRegistered is invoked (with the current registration state) every time
@@ -29,8 +31,11 @@ type DeployHandler func(ctx context.Context, flowID string, version int64, flowJ
 // debugSink and rb may be nil to opt out of the live-debugging channel
 // entirely (Increment 5, DBG-100/110/120/170); connResolver may be nil to
 // opt out of connection resolution (Increment 6, CON-110) — nodes that
-// reference a connection will simply fail to resolve it.
-func Run(ctx context.Context, addr, runtimeID, version string, onRegistered func(bool), onDeploy DeployHandler, debugSink *DebugSink, rb RingBufferSource, connResolver *ConnectionResolver) error {
+// reference a connection will simply fail to resolve it. eventSink and
+// target may be nil to opt out of the execution/dead-letter channel
+// entirely (Increment 8, ENG-130/DBG-140/ERR-130) — nothing is tracked or
+// re-runnable in that case.
+func Run(ctx context.Context, addr, runtimeID, version string, onRegistered func(bool), onDeploy DeployHandler, debugSink *DebugSink, rb RingBufferSource, connResolver *ConnectionResolver, eventSink *EventSink, target DeploymentTarget) error {
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return err
@@ -67,6 +72,9 @@ func Run(ctx context.Context, addr, runtimeID, version string, onRegistered func
 		go deployStreamLoop(streamCtx, client, runtimeID, sessionToken, onDeploy)
 		if debugSink != nil {
 			go debugChannelLoop(streamCtx, client, runtimeID, sessionToken, debugSink, rb)
+		}
+		if eventSink != nil {
+			go eventChannelLoop(streamCtx, client, runtimeID, sessionToken, eventSink, target)
 		}
 
 		if err := heartbeatLoop(ctx, client, runtimeID, sessionToken); err != nil {
@@ -131,7 +139,7 @@ func deployStreamLoop(ctx context.Context, client runtimev1.RuntimeRegistryServi
 				break
 			}
 			if onDeploy != nil {
-				onDeploy(ctx, cmd.GetFlowId(), cmd.GetVersion(), cmd.GetFlowJson())
+				onDeploy(ctx, cmd.GetFlowId(), cmd.GetVersion(), cmd.GetFlowJson(), cmd.GetDefaultErrorFlow())
 			}
 		}
 

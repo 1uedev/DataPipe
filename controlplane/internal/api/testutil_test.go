@@ -27,6 +27,7 @@ import (
 	_ "github.com/1uedev/DataPipe/engine/nodes/convert"
 	_ "github.com/1uedev/DataPipe/engine/nodes/debuglog"
 	_ "github.com/1uedev/DataPipe/engine/nodes/delay"
+	_ "github.com/1uedev/DataPipe/engine/nodes/errortrigger"
 	_ "github.com/1uedev/DataPipe/engine/nodes/filewatch"
 	_ "github.com/1uedev/DataPipe/engine/nodes/filter"
 	_ "github.com/1uedev/DataPipe/engine/nodes/httpin"
@@ -45,6 +46,7 @@ import (
 	_ "github.com/1uedev/DataPipe/engine/nodes/sqlsink"
 	_ "github.com/1uedev/DataPipe/engine/nodes/sqlsource"
 	_ "github.com/1uedev/DataPipe/engine/nodes/state"
+	_ "github.com/1uedev/DataPipe/engine/nodes/stoperror"
 	_ "github.com/1uedev/DataPipe/engine/nodes/switchroute"
 	_ "github.com/1uedev/DataPipe/engine/nodes/template"
 	_ "github.com/1uedev/DataPipe/engine/nodes/trycatch"
@@ -63,7 +65,7 @@ type deployCall struct {
 
 var errFakeDeployUnavailable = errors.New("no runtime connected (test double)")
 
-func (f *fakeDeployer) DeployFlow(ctx context.Context, flowID string, version int64, flowJSON string) error {
+func (f *fakeDeployer) DeployFlow(ctx context.Context, flowID string, version int64, flowJSON, defaultErrorFlow string) error {
 	if f.fail {
 		return errFakeDeployUnavailable
 	}
@@ -75,13 +77,53 @@ type fakeRuntimeLister struct{ runtimes []RuntimeInfo }
 
 func (f *fakeRuntimeLister) ListRuntimes() []RuntimeInfo { return f.runtimes }
 
+// fakeCommander is the ExecutionCommander test double (Increment 8): a
+// nil *fakeCommander (typed nil, not untyped nil) is a valid, deliberately
+// "not configured" ExecutionCommander so existing tests that never
+// exercise rerun/cancel/reinject don't need to change.
+type fakeCommander struct {
+	fail bool
+
+	ranFlowID, ranFrom, ranNodeID, ranPort, ranDatagramJSON, ranReRunOf string
+	cancelledExecutionID                                                string
+	reinjectedFlowID, reinjectedNodeID, reinjectedPort, reinjectedJSON  string
+}
+
+var errFakeCommandUnavailable = errors.New("no runtime connected (test double)")
+
+func (f *fakeCommander) RunExecution(ctx context.Context, flowID, from, nodeID, port, datagramJSON, reRunOf string) error {
+	if f.fail {
+		return errFakeCommandUnavailable
+	}
+	f.ranFlowID, f.ranFrom, f.ranNodeID, f.ranPort, f.ranDatagramJSON, f.ranReRunOf = flowID, from, nodeID, port, datagramJSON, reRunOf
+	return nil
+}
+
+func (f *fakeCommander) CancelExecution(ctx context.Context, executionID string) error {
+	if f.fail {
+		return errFakeCommandUnavailable
+	}
+	f.cancelledExecutionID = executionID
+	return nil
+}
+
+func (f *fakeCommander) ReinjectDeadLetter(ctx context.Context, flowID, nodeID, port, datagramJSON string) error {
+	if f.fail {
+		return errFakeCommandUnavailable
+	}
+	f.reinjectedFlowID, f.reinjectedNodeID, f.reinjectedPort, f.reinjectedJSON = flowID, nodeID, port, datagramJSON
+	return nil
+}
+
 type testEnv struct {
 	t         *testing.T
 	authStore *auth.Store
 	auditLog  *audit.Log
 	deployer  *fakeDeployer
+	commander *fakeCommander
 	debugHub  *debughub.Hub
 	server    *httptest.Server
+	store     *Store
 }
 
 func newTestEnv(t *testing.T) *testEnv {
@@ -109,13 +151,14 @@ func newTestEnv(t *testing.T) *testEnv {
 	}
 
 	deployer := &fakeDeployer{}
+	commander := &fakeCommander{}
 	hub := debughub.New(func(string, string) bool { return true })
-	handlers := NewHandlers(store, authStore, vault, auditLog, deployer, &fakeRuntimeLister{}, hub, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	handlers := NewHandlers(store, authStore, vault, auditLog, deployer, &fakeRuntimeLister{}, hub, commander, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	server := httptest.NewServer(handlers.Routes())
 	t.Cleanup(server.Close)
 
-	return &testEnv{t: t, authStore: authStore, auditLog: auditLog, deployer: deployer, debugHub: hub, server: server}
+	return &testEnv{t: t, authStore: authStore, auditLog: auditLog, deployer: deployer, commander: commander, debugHub: hub, server: server, store: store}
 }
 
 // createUserAndLogin creates a local account and returns a bearer token for it.

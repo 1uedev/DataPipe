@@ -1,6 +1,6 @@
 # DataPipe — Administrator Guide
 
-**Covers:** development state after Increment 6 · **Audience:** operators of a DataPipe installation
+**Covers:** development state after Increment 8 · **Audience:** operators of a DataPipe installation
 **Components:** control plane (REST API + gRPC registry), runtime (flow engine), PostgreSQL or SQLite, editor UI.
 
 ## 1. Installation
@@ -76,16 +76,27 @@ Every security-relevant action (logins, user/permission changes, credential writ
 * Deploys are pushed to connected runtimes over a server-streaming gRPC channel; the runtime hot-swaps only the affected nodes (ENG-140) — untouched nodes keep running.
 * `GET /api/v1/runtimes` lists connected runtimes. Currently every deploy goes to **all** connected runtimes; per-runtime/group targeting arrives with fleet management (Increment 9).
 * CLI: `datapipe deploy <flow.json> [-for <duration>]` deploys a flow file directly to a runtime (developer tool); `datapipe version` prints the build version.
+* **Crash recovery** (ERR-150): when a runtime (re)connects, the control plane immediately re-pushes every currently-deployed flow to it — no manual redeploy needed after a runtime restart. Any execution that was still `running`/`waiting` on a runtime whose connection just dropped is automatically marked `crashed` in its execution history (visible, re-runnable), rather than sitting "running" forever.
 
-## 7. Backup and restore
+## 7. Triggered workflows: execution history and dead letters
+
+A flow whose entry node is a trigger (HTTP In, Error Trigger) produces one tracked **execution** per fire, stored durably in the control plane's database (`executions`, `execution_node_io` tables) — separate from, and never sampled/dropped like, the live debug channel. REST surface: `GET /flows/{id}/executions` (filter by `status`), `GET /executions/{id}` (full per-node trace), `POST /executions/{id}/rerun` (`{"from":"start"}` or `{"from":"node","nodeId":"..."}`, Operator+), `POST /executions/{id}/cancel` (Operator+). A datagram a node couldn't deliver (error policy resolved to fail/discard, or a TTL expiry) is stored as a **dead letter** (`dead_letters` table): `GET /flows/{id}/dead-letters`, `POST /dead-letters/{id}/reinject` (Operator+), `DELETE /dead-letters/{id}`.
+
+Transport: a second bidirectional gRPC stream, `EventChannel` (alongside `DebugChannel`), carries execution/dead-letter events from the runtime and re-run/cancel/reinject commands back down — opened once per runtime connection, same as `DeployStream`/`DebugChannel`.
+
+**Flow-level error handling** (ERR-120): a project can designate a default error-handler flow (`PATCH /projects/{id}` with `defaultErrorFlow`); a flow can override it (`settings.errorFlow` in its content). Both are only meaningful if the handler flow is deployed to the same runtime as the flow producing errors — genuine cross-runtime error routing needs the multi-flow-per-runtime work tracked in TODO.md.
+
+**Concurrency and timeouts**: a triggered flow's `settings.maxConcurrency`/`concurrencyPolicy` (`queue`|`reject`) and `executionTimeoutMs` are enforced runtime-side per flow, with no control-plane configuration needed beyond the flow content itself.
+
+## 8. Backup and restore
 
 Back up three things: the database (`pg_dump` for PostgreSQL, or a copy of the SQLite file taken while the control plane is stopped), the `DATAPIPE_MASTER_KEY` (separately, in a secret manager — a DB backup without the key has unrecoverable credentials), and your `deploy/` configuration. Restore = restore DB, set the same master key, start the control plane (migrations verify the schema), restart runtimes (they re-register and receive their flows on the next deploy).
 
-## 8. Live debug channel
+## 9. Live debug channel
 
 Since Increment 5 the editor's live inspection runs over a WebSocket at `/ws/debug` on the control plane (protocol documented in `docs/api/debug-websocket.md`; the session token travels as a query parameter because the WS handshake cannot carry the auth header). Access is gated at **Operator or higher** per project — Viewers cannot see payloads. The runtime only captures and forwards debug data for flows someone is actually watching, the live stream is rate-limited (default 20 events/s per node) and payloads over 4 KiB are truncated before relay, so debugging a high-volume flow does not overload runtime, control plane, or browser. Wire counters remain exact regardless of sampling.
 
-## 9. Monitoring and troubleshooting
+## 10. Monitoring and troubleshooting
 
 | Symptom | Check |
 |---|---|
@@ -99,6 +110,6 @@ Since Increment 5 the editor's live inspection runs over a WebSocket at `/ws/deb
 
 Health endpoints: control plane `:8080/healthz`, runtime `:8081/healthz` (compose maps it to 8082). Prometheus metrics (OBS-100) are specified but not implemented yet.
 
-## 10. Upgrades
+## 11. Upgrades
 
 Pull the new version, rebuild (`docker compose build` or `make build`), restart control plane first (runs migrations), then runtimes. Flow definitions and versions are forward-compatible per the flow file format's `formatVersion` rules. Take a backup before upgrading.

@@ -338,12 +338,17 @@ func (x *DeployStreamRequest) GetSessionToken() string {
 // (Flow-File-Format.md) for the runtime to validate and apply via its
 // local flow.Deployment.
 type DeployStreamResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	FlowId        string                 `protobuf:"bytes,1,opt,name=flow_id,json=flowId,proto3" json:"flow_id,omitempty"`
-	Version       int64                  `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
-	FlowJson      string                 `protobuf:"bytes,3,opt,name=flow_json,json=flowJson,proto3" json:"flow_json,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	FlowId   string                 `protobuf:"bytes,1,opt,name=flow_id,json=flowId,proto3" json:"flow_id,omitempty"`
+	Version  int64                  `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
+	FlowJson string                 `protobuf:"bytes,3,opt,name=flow_json,json=flowJson,proto3" json:"flow_json,omitempty"`
+	// default_error_flow is the owning project's ERR-120 fallback
+	// error-handler flow id (Increment 8), applied via
+	// flow.Deployment.SetDefaultErrorFlow when the flow itself has no
+	// settings.errorFlow of its own. "" if the project has none configured.
+	DefaultErrorFlow string `protobuf:"bytes,4,opt,name=default_error_flow,json=defaultErrorFlow,proto3" json:"default_error_flow,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *DeployStreamResponse) Reset() {
@@ -393,6 +398,13 @@ func (x *DeployStreamResponse) GetVersion() int64 {
 func (x *DeployStreamResponse) GetFlowJson() string {
 	if x != nil {
 		return x.FlowJson
+	}
+	return ""
+}
+
+func (x *DeployStreamResponse) GetDefaultErrorFlow() string {
+	if x != nil {
+		return x.DefaultErrorFlow
 	}
 	return ""
 }
@@ -1028,6 +1040,703 @@ func (x *ResolveConnectionResponse) GetCredentialJson() string {
 	return ""
 }
 
+// EventChannelRequest is one message the runtime pushes on the
+// EventChannel: either a triggered-execution lifecycle event or a
+// dead-lettered datagram. Never sampled/dropped (unlike DebugChannel).
+type EventChannelRequest struct {
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	RuntimeId    string                 `protobuf:"bytes,1,opt,name=runtime_id,json=runtimeId,proto3" json:"runtime_id,omitempty"`
+	SessionToken string                 `protobuf:"bytes,2,opt,name=session_token,json=sessionToken,proto3" json:"session_token,omitempty"`
+	// Types that are valid to be assigned to Payload:
+	//
+	//	*EventChannelRequest_ExecutionEvent
+	//	*EventChannelRequest_DeadLetterEvent
+	Payload       isEventChannelRequest_Payload `protobuf_oneof:"payload"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EventChannelRequest) Reset() {
+	*x = EventChannelRequest{}
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EventChannelRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EventChannelRequest) ProtoMessage() {}
+
+func (x *EventChannelRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EventChannelRequest.ProtoReflect.Descriptor instead.
+func (*EventChannelRequest) Descriptor() ([]byte, []int) {
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *EventChannelRequest) GetRuntimeId() string {
+	if x != nil {
+		return x.RuntimeId
+	}
+	return ""
+}
+
+func (x *EventChannelRequest) GetSessionToken() string {
+	if x != nil {
+		return x.SessionToken
+	}
+	return ""
+}
+
+func (x *EventChannelRequest) GetPayload() isEventChannelRequest_Payload {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
+func (x *EventChannelRequest) GetExecutionEvent() *ExecutionEvent {
+	if x != nil {
+		if x, ok := x.Payload.(*EventChannelRequest_ExecutionEvent); ok {
+			return x.ExecutionEvent
+		}
+	}
+	return nil
+}
+
+func (x *EventChannelRequest) GetDeadLetterEvent() *DeadLetterEvent {
+	if x != nil {
+		if x, ok := x.Payload.(*EventChannelRequest_DeadLetterEvent); ok {
+			return x.DeadLetterEvent
+		}
+	}
+	return nil
+}
+
+type isEventChannelRequest_Payload interface {
+	isEventChannelRequest_Payload()
+}
+
+type EventChannelRequest_ExecutionEvent struct {
+	ExecutionEvent *ExecutionEvent `protobuf:"bytes,3,opt,name=execution_event,json=executionEvent,proto3,oneof"`
+}
+
+type EventChannelRequest_DeadLetterEvent struct {
+	DeadLetterEvent *DeadLetterEvent `protobuf:"bytes,4,opt,name=dead_letter_event,json=deadLetterEvent,proto3,oneof"`
+}
+
+func (*EventChannelRequest_ExecutionEvent) isEventChannelRequest_Payload() {}
+
+func (*EventChannelRequest_DeadLetterEvent) isEventChannelRequest_Payload() {}
+
+// ExecutionEvent reports one moment in a tracked execution's lifecycle
+// (ENG-130/DBG-140): the trigger firing ("started"), one node's
+// input/output/error ("node"), or the execution reaching a terminal status
+// ("finished"). A flat message (like DebugEvent) rather than a nested
+// oneof, with phase-specific fields populated only for the relevant phase.
+type ExecutionEvent struct {
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	ExecutionId string                 `protobuf:"bytes,1,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"` // the root datagram's correlationId (DGM-160)
+	FlowId      string                 `protobuf:"bytes,2,opt,name=flow_id,json=flowId,proto3" json:"flow_id,omitempty"`
+	Phase       string                 `protobuf:"bytes,3,opt,name=phase,proto3" json:"phase,omitempty"` // "started" | "node" | "finished"
+	TimeUnixMs  int64                  `protobuf:"varint,4,opt,name=time_unix_ms,json=timeUnixMs,proto3" json:"time_unix_ms,omitempty"`
+	// phase == "started"
+	TriggerNodeId    string `protobuf:"bytes,5,opt,name=trigger_node_id,json=triggerNodeId,proto3" json:"trigger_node_id,omitempty"`
+	TriggerKind      string `protobuf:"bytes,6,opt,name=trigger_kind,json=triggerKind,proto3" json:"trigger_kind,omitempty"` // e.g. "webhook" | "rerun"
+	ReRunOf          string `protobuf:"bytes,7,opt,name=re_run_of,json=reRunOf,proto3" json:"re_run_of,omitempty"`           // execution id this replays, if any
+	SeedDatagramJson string `protobuf:"bytes,8,opt,name=seed_datagram_json,json=seedDatagramJson,proto3" json:"seed_datagram_json,omitempty"`
+	// phase == "node"
+	NodeId       string `protobuf:"bytes,9,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	Port         string `protobuf:"bytes,10,opt,name=port,proto3" json:"port,omitempty"`
+	Attempt      int32  `protobuf:"varint,11,opt,name=attempt,proto3" json:"attempt,omitempty"`
+	DurationUs   int64  `protobuf:"varint,12,opt,name=duration_us,json=durationUs,proto3" json:"duration_us,omitempty"`
+	InputJson    string `protobuf:"bytes,13,opt,name=input_json,json=inputJson,proto3" json:"input_json,omitempty"`
+	OutputsJson  string `protobuf:"bytes,14,opt,name=outputs_json,json=outputsJson,proto3" json:"outputs_json,omitempty"` // JSON array of {port, datagram}
+	ErrorMessage string `protobuf:"bytes,15,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	ErrorCode    string `protobuf:"bytes,16,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
+	ErrorStack   string `protobuf:"bytes,17,opt,name=error_stack,json=errorStack,proto3" json:"error_stack,omitempty"`
+	// phase == "finished"
+	Status        string `protobuf:"bytes,18,opt,name=status,proto3" json:"status,omitempty"` // success | failed | cancelled | crashed
+	Reason        string `protobuf:"bytes,19,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExecutionEvent) Reset() {
+	*x = ExecutionEvent{}
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecutionEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecutionEvent) ProtoMessage() {}
+
+func (x *ExecutionEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExecutionEvent.ProtoReflect.Descriptor instead.
+func (*ExecutionEvent) Descriptor() ([]byte, []int) {
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *ExecutionEvent) GetExecutionId() string {
+	if x != nil {
+		return x.ExecutionId
+	}
+	return ""
+}
+
+func (x *ExecutionEvent) GetFlowId() string {
+	if x != nil {
+		return x.FlowId
+	}
+	return ""
+}
+
+func (x *ExecutionEvent) GetPhase() string {
+	if x != nil {
+		return x.Phase
+	}
+	return ""
+}
+
+func (x *ExecutionEvent) GetTimeUnixMs() int64 {
+	if x != nil {
+		return x.TimeUnixMs
+	}
+	return 0
+}
+
+func (x *ExecutionEvent) GetTriggerNodeId() string {
+	if x != nil {
+		return x.TriggerNodeId
+	}
+	return ""
+}
+
+func (x *ExecutionEvent) GetTriggerKind() string {
+	if x != nil {
+		return x.TriggerKind
+	}
+	return ""
+}
+
+func (x *ExecutionEvent) GetReRunOf() string {
+	if x != nil {
+		return x.ReRunOf
+	}
+	return ""
+}
+
+func (x *ExecutionEvent) GetSeedDatagramJson() string {
+	if x != nil {
+		return x.SeedDatagramJson
+	}
+	return ""
+}
+
+func (x *ExecutionEvent) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+func (x *ExecutionEvent) GetPort() string {
+	if x != nil {
+		return x.Port
+	}
+	return ""
+}
+
+func (x *ExecutionEvent) GetAttempt() int32 {
+	if x != nil {
+		return x.Attempt
+	}
+	return 0
+}
+
+func (x *ExecutionEvent) GetDurationUs() int64 {
+	if x != nil {
+		return x.DurationUs
+	}
+	return 0
+}
+
+func (x *ExecutionEvent) GetInputJson() string {
+	if x != nil {
+		return x.InputJson
+	}
+	return ""
+}
+
+func (x *ExecutionEvent) GetOutputsJson() string {
+	if x != nil {
+		return x.OutputsJson
+	}
+	return ""
+}
+
+func (x *ExecutionEvent) GetErrorMessage() string {
+	if x != nil {
+		return x.ErrorMessage
+	}
+	return ""
+}
+
+func (x *ExecutionEvent) GetErrorCode() string {
+	if x != nil {
+		return x.ErrorCode
+	}
+	return ""
+}
+
+func (x *ExecutionEvent) GetErrorStack() string {
+	if x != nil {
+		return x.ErrorStack
+	}
+	return ""
+}
+
+func (x *ExecutionEvent) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *ExecutionEvent) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+// DeadLetterEvent reports one dead-lettered datagram (ERR-130): a node
+// error that resolved to "fail"/"discard", or a TTL-expired datagram.
+type DeadLetterEvent struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	FlowId        string                 `protobuf:"bytes,2,opt,name=flow_id,json=flowId,proto3" json:"flow_id,omitempty"`
+	NodeId        string                 `protobuf:"bytes,3,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	Port          string                 `protobuf:"bytes,4,opt,name=port,proto3" json:"port,omitempty"`
+	Reason        string                 `protobuf:"bytes,5,opt,name=reason,proto3" json:"reason,omitempty"` // e.g. "node_error" | "ttl_expired"
+	DatagramJson  string                 `protobuf:"bytes,6,opt,name=datagram_json,json=datagramJson,proto3" json:"datagram_json,omitempty"`
+	TimeUnixMs    int64                  `protobuf:"varint,7,opt,name=time_unix_ms,json=timeUnixMs,proto3" json:"time_unix_ms,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeadLetterEvent) Reset() {
+	*x = DeadLetterEvent{}
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeadLetterEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeadLetterEvent) ProtoMessage() {}
+
+func (x *DeadLetterEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeadLetterEvent.ProtoReflect.Descriptor instead.
+func (*DeadLetterEvent) Descriptor() ([]byte, []int) {
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *DeadLetterEvent) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *DeadLetterEvent) GetFlowId() string {
+	if x != nil {
+		return x.FlowId
+	}
+	return ""
+}
+
+func (x *DeadLetterEvent) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+func (x *DeadLetterEvent) GetPort() string {
+	if x != nil {
+		return x.Port
+	}
+	return ""
+}
+
+func (x *DeadLetterEvent) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *DeadLetterEvent) GetDatagramJson() string {
+	if x != nil {
+		return x.DatagramJson
+	}
+	return ""
+}
+
+func (x *DeadLetterEvent) GetTimeUnixMs() int64 {
+	if x != nil {
+		return x.TimeUnixMs
+	}
+	return 0
+}
+
+// EventChannelResponse is one message the control plane pushes on the
+// EventChannel: a command to re-run an execution, cancel one, or re-inject
+// a dead letter.
+type EventChannelResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Payload:
+	//
+	//	*EventChannelResponse_RunExecution
+	//	*EventChannelResponse_CancelExecution
+	//	*EventChannelResponse_ReinjectDeadLetter
+	Payload       isEventChannelResponse_Payload `protobuf_oneof:"payload"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EventChannelResponse) Reset() {
+	*x = EventChannelResponse{}
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EventChannelResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EventChannelResponse) ProtoMessage() {}
+
+func (x *EventChannelResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EventChannelResponse.ProtoReflect.Descriptor instead.
+func (*EventChannelResponse) Descriptor() ([]byte, []int) {
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *EventChannelResponse) GetPayload() isEventChannelResponse_Payload {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
+func (x *EventChannelResponse) GetRunExecution() *RunExecution {
+	if x != nil {
+		if x, ok := x.Payload.(*EventChannelResponse_RunExecution); ok {
+			return x.RunExecution
+		}
+	}
+	return nil
+}
+
+func (x *EventChannelResponse) GetCancelExecution() *CancelExecution {
+	if x != nil {
+		if x, ok := x.Payload.(*EventChannelResponse_CancelExecution); ok {
+			return x.CancelExecution
+		}
+	}
+	return nil
+}
+
+func (x *EventChannelResponse) GetReinjectDeadLetter() *ReinjectDeadLetter {
+	if x != nil {
+		if x, ok := x.Payload.(*EventChannelResponse_ReinjectDeadLetter); ok {
+			return x.ReinjectDeadLetter
+		}
+	}
+	return nil
+}
+
+type isEventChannelResponse_Payload interface {
+	isEventChannelResponse_Payload()
+}
+
+type EventChannelResponse_RunExecution struct {
+	RunExecution *RunExecution `protobuf:"bytes,1,opt,name=run_execution,json=runExecution,proto3,oneof"`
+}
+
+type EventChannelResponse_CancelExecution struct {
+	CancelExecution *CancelExecution `protobuf:"bytes,2,opt,name=cancel_execution,json=cancelExecution,proto3,oneof"`
+}
+
+type EventChannelResponse_ReinjectDeadLetter struct {
+	ReinjectDeadLetter *ReinjectDeadLetter `protobuf:"bytes,3,opt,name=reinject_dead_letter,json=reinjectDeadLetter,proto3,oneof"`
+}
+
+func (*EventChannelResponse_RunExecution) isEventChannelResponse_Payload() {}
+
+func (*EventChannelResponse_CancelExecution) isEventChannelResponse_Payload() {}
+
+func (*EventChannelResponse_ReinjectDeadLetter) isEventChannelResponse_Payload() {}
+
+// RunExecution asks the runtime to replay a previously recorded datagram
+// through the live deployment, starting a new tracked execution. For
+// from == "start" it is fanned out to (node_id, port)'s current downstream
+// targets (mirroring the trigger's original emission); for from == "node"
+// it is delivered directly into (node_id, port)'s own inbox (re-running
+// that node and everything downstream of it).
+type RunExecution struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	FlowId        string                 `protobuf:"bytes,1,opt,name=flow_id,json=flowId,proto3" json:"flow_id,omitempty"`
+	From          string                 `protobuf:"bytes,2,opt,name=from,proto3" json:"from,omitempty"` // "start" | "node"
+	NodeId        string                 `protobuf:"bytes,3,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	Port          string                 `protobuf:"bytes,4,opt,name=port,proto3" json:"port,omitempty"`
+	DatagramJson  string                 `protobuf:"bytes,5,opt,name=datagram_json,json=datagramJson,proto3" json:"datagram_json,omitempty"`
+	ReRunOf       string                 `protobuf:"bytes,6,opt,name=re_run_of,json=reRunOf,proto3" json:"re_run_of,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RunExecution) Reset() {
+	*x = RunExecution{}
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RunExecution) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RunExecution) ProtoMessage() {}
+
+func (x *RunExecution) ProtoReflect() protoreflect.Message {
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RunExecution.ProtoReflect.Descriptor instead.
+func (*RunExecution) Descriptor() ([]byte, []int) {
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *RunExecution) GetFlowId() string {
+	if x != nil {
+		return x.FlowId
+	}
+	return ""
+}
+
+func (x *RunExecution) GetFrom() string {
+	if x != nil {
+		return x.From
+	}
+	return ""
+}
+
+func (x *RunExecution) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+func (x *RunExecution) GetPort() string {
+	if x != nil {
+		return x.Port
+	}
+	return ""
+}
+
+func (x *RunExecution) GetDatagramJson() string {
+	if x != nil {
+		return x.DatagramJson
+	}
+	return ""
+}
+
+func (x *RunExecution) GetReRunOf() string {
+	if x != nil {
+		return x.ReRunOf
+	}
+	return ""
+}
+
+type CancelExecution struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ExecutionId   string                 `protobuf:"bytes,1,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CancelExecution) Reset() {
+	*x = CancelExecution{}
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CancelExecution) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CancelExecution) ProtoMessage() {}
+
+func (x *CancelExecution) ProtoReflect() protoreflect.Message {
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CancelExecution.ProtoReflect.Descriptor instead.
+func (*CancelExecution) Descriptor() ([]byte, []int) {
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *CancelExecution) GetExecutionId() string {
+	if x != nil {
+		return x.ExecutionId
+	}
+	return ""
+}
+
+// ReinjectDeadLetter asks the runtime to deliver a previously dead-lettered
+// datagram back into the node that dead-lettered it (ERR-130), as if it had
+// just arrived normally.
+type ReinjectDeadLetter struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	FlowId        string                 `protobuf:"bytes,1,opt,name=flow_id,json=flowId,proto3" json:"flow_id,omitempty"`
+	NodeId        string                 `protobuf:"bytes,2,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	Port          string                 `protobuf:"bytes,3,opt,name=port,proto3" json:"port,omitempty"`
+	DatagramJson  string                 `protobuf:"bytes,4,opt,name=datagram_json,json=datagramJson,proto3" json:"datagram_json,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReinjectDeadLetter) Reset() {
+	*x = ReinjectDeadLetter{}
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReinjectDeadLetter) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReinjectDeadLetter) ProtoMessage() {}
+
+func (x *ReinjectDeadLetter) ProtoReflect() protoreflect.Message {
+	mi := &file_datapipe_runtime_v1_runtime_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReinjectDeadLetter.ProtoReflect.Descriptor instead.
+func (*ReinjectDeadLetter) Descriptor() ([]byte, []int) {
+	return file_datapipe_runtime_v1_runtime_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *ReinjectDeadLetter) GetFlowId() string {
+	if x != nil {
+		return x.FlowId
+	}
+	return ""
+}
+
+func (x *ReinjectDeadLetter) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+func (x *ReinjectDeadLetter) GetPort() string {
+	if x != nil {
+		return x.Port
+	}
+	return ""
+}
+
+func (x *ReinjectDeadLetter) GetDatagramJson() string {
+	if x != nil {
+		return x.DatagramJson
+	}
+	return ""
+}
+
 var File_datapipe_runtime_v1_runtime_proto protoreflect.FileDescriptor
 
 const file_datapipe_runtime_v1_runtime_proto_rawDesc = "" +
@@ -1050,11 +1759,12 @@ const file_datapipe_runtime_v1_runtime_proto_rawDesc = "" +
 	"\x13DeployStreamRequest\x12\x1d\n" +
 	"\n" +
 	"runtime_id\x18\x01 \x01(\tR\truntimeId\x12#\n" +
-	"\rsession_token\x18\x02 \x01(\tR\fsessionToken\"f\n" +
+	"\rsession_token\x18\x02 \x01(\tR\fsessionToken\"\x94\x01\n" +
 	"\x14DeployStreamResponse\x12\x17\n" +
 	"\aflow_id\x18\x01 \x01(\tR\x06flowId\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\x03R\aversion\x12\x1b\n" +
-	"\tflow_json\x18\x03 \x01(\tR\bflowJson\"\xec\x01\n" +
+	"\tflow_json\x18\x03 \x01(\tR\bflowJson\x12,\n" +
+	"\x12default_error_flow\x18\x04 \x01(\tR\x10defaultErrorFlow\"\xec\x01\n" +
 	"\x13DebugChannelRequest\x12\x1d\n" +
 	"\n" +
 	"runtime_id\x18\x01 \x01(\tR\truntimeId\x12#\n" +
@@ -1105,17 +1815,79 @@ const file_datapipe_runtime_v1_runtime_proto_rawDesc = "" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12\x1f\n" +
 	"\vconfig_json\x18\x02 \x01(\tR\n" +
 	"configJson\x12'\n" +
-	"\x0fcredential_json\x18\x03 \x01(\tR\x0ecredentialJson*[\n" +
+	"\x0fcredential_json\x18\x03 \x01(\tR\x0ecredentialJson\"\x88\x02\n" +
+	"\x13EventChannelRequest\x12\x1d\n" +
+	"\n" +
+	"runtime_id\x18\x01 \x01(\tR\truntimeId\x12#\n" +
+	"\rsession_token\x18\x02 \x01(\tR\fsessionToken\x12N\n" +
+	"\x0fexecution_event\x18\x03 \x01(\v2#.datapipe.runtime.v1.ExecutionEventH\x00R\x0eexecutionEvent\x12R\n" +
+	"\x11dead_letter_event\x18\x04 \x01(\v2$.datapipe.runtime.v1.DeadLetterEventH\x00R\x0fdeadLetterEventB\t\n" +
+	"\apayload\"\xd8\x04\n" +
+	"\x0eExecutionEvent\x12!\n" +
+	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\x12\x17\n" +
+	"\aflow_id\x18\x02 \x01(\tR\x06flowId\x12\x14\n" +
+	"\x05phase\x18\x03 \x01(\tR\x05phase\x12 \n" +
+	"\ftime_unix_ms\x18\x04 \x01(\x03R\n" +
+	"timeUnixMs\x12&\n" +
+	"\x0ftrigger_node_id\x18\x05 \x01(\tR\rtriggerNodeId\x12!\n" +
+	"\ftrigger_kind\x18\x06 \x01(\tR\vtriggerKind\x12\x1a\n" +
+	"\tre_run_of\x18\a \x01(\tR\areRunOf\x12,\n" +
+	"\x12seed_datagram_json\x18\b \x01(\tR\x10seedDatagramJson\x12\x17\n" +
+	"\anode_id\x18\t \x01(\tR\x06nodeId\x12\x12\n" +
+	"\x04port\x18\n" +
+	" \x01(\tR\x04port\x12\x18\n" +
+	"\aattempt\x18\v \x01(\x05R\aattempt\x12\x1f\n" +
+	"\vduration_us\x18\f \x01(\x03R\n" +
+	"durationUs\x12\x1d\n" +
+	"\n" +
+	"input_json\x18\r \x01(\tR\tinputJson\x12!\n" +
+	"\foutputs_json\x18\x0e \x01(\tR\voutputsJson\x12#\n" +
+	"\rerror_message\x18\x0f \x01(\tR\ferrorMessage\x12\x1d\n" +
+	"\n" +
+	"error_code\x18\x10 \x01(\tR\terrorCode\x12\x1f\n" +
+	"\verror_stack\x18\x11 \x01(\tR\n" +
+	"errorStack\x12\x16\n" +
+	"\x06status\x18\x12 \x01(\tR\x06status\x12\x16\n" +
+	"\x06reason\x18\x13 \x01(\tR\x06reason\"\xc6\x01\n" +
+	"\x0fDeadLetterEvent\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
+	"\aflow_id\x18\x02 \x01(\tR\x06flowId\x12\x17\n" +
+	"\anode_id\x18\x03 \x01(\tR\x06nodeId\x12\x12\n" +
+	"\x04port\x18\x04 \x01(\tR\x04port\x12\x16\n" +
+	"\x06reason\x18\x05 \x01(\tR\x06reason\x12#\n" +
+	"\rdatagram_json\x18\x06 \x01(\tR\fdatagramJson\x12 \n" +
+	"\ftime_unix_ms\x18\a \x01(\x03R\n" +
+	"timeUnixMs\"\x9b\x02\n" +
+	"\x14EventChannelResponse\x12H\n" +
+	"\rrun_execution\x18\x01 \x01(\v2!.datapipe.runtime.v1.RunExecutionH\x00R\frunExecution\x12Q\n" +
+	"\x10cancel_execution\x18\x02 \x01(\v2$.datapipe.runtime.v1.CancelExecutionH\x00R\x0fcancelExecution\x12[\n" +
+	"\x14reinject_dead_letter\x18\x03 \x01(\v2'.datapipe.runtime.v1.ReinjectDeadLetterH\x00R\x12reinjectDeadLetterB\t\n" +
+	"\apayload\"\xa9\x01\n" +
+	"\fRunExecution\x12\x17\n" +
+	"\aflow_id\x18\x01 \x01(\tR\x06flowId\x12\x12\n" +
+	"\x04from\x18\x02 \x01(\tR\x04from\x12\x17\n" +
+	"\anode_id\x18\x03 \x01(\tR\x06nodeId\x12\x12\n" +
+	"\x04port\x18\x04 \x01(\tR\x04port\x12#\n" +
+	"\rdatagram_json\x18\x05 \x01(\tR\fdatagramJson\x12\x1a\n" +
+	"\tre_run_of\x18\x06 \x01(\tR\areRunOf\"4\n" +
+	"\x0fCancelExecution\x12!\n" +
+	"\fexecution_id\x18\x01 \x01(\tR\vexecutionId\"\x7f\n" +
+	"\x12ReinjectDeadLetter\x12\x17\n" +
+	"\aflow_id\x18\x01 \x01(\tR\x06flowId\x12\x17\n" +
+	"\anode_id\x18\x02 \x01(\tR\x06nodeId\x12\x12\n" +
+	"\x04port\x18\x03 \x01(\tR\x04port\x12#\n" +
+	"\rdatagram_json\x18\x04 \x01(\tR\fdatagramJson*[\n" +
 	"\vRuntimeKind\x12\x1c\n" +
 	"\x18RUNTIME_KIND_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13RUNTIME_KIND_SERVER\x10\x01\x12\x15\n" +
-	"\x11RUNTIME_KIND_EDGE\x10\x022\x91\x04\n" +
+	"\x11RUNTIME_KIND_EDGE\x10\x022\xfa\x04\n" +
 	"\x16RuntimeRegistryService\x12W\n" +
 	"\bRegister\x12$.datapipe.runtime.v1.RegisterRequest\x1a%.datapipe.runtime.v1.RegisterResponse\x12Z\n" +
 	"\tHeartbeat\x12%.datapipe.runtime.v1.HeartbeatRequest\x1a&.datapipe.runtime.v1.HeartbeatResponse\x12e\n" +
 	"\fDeployStream\x12(.datapipe.runtime.v1.DeployStreamRequest\x1a).datapipe.runtime.v1.DeployStreamResponse0\x01\x12g\n" +
 	"\fDebugChannel\x12(.datapipe.runtime.v1.DebugChannelRequest\x1a).datapipe.runtime.v1.DebugChannelResponse(\x010\x01\x12r\n" +
-	"\x11ResolveConnection\x12-.datapipe.runtime.v1.ResolveConnectionRequest\x1a..datapipe.runtime.v1.ResolveConnectionResponseBGZEgithub.com/1uedev/DataPipe/proto/gen/go/datapipe/runtime/v1;runtimev1b\x06proto3"
+	"\x11ResolveConnection\x12-.datapipe.runtime.v1.ResolveConnectionRequest\x1a..datapipe.runtime.v1.ResolveConnectionResponse\x12g\n" +
+	"\fEventChannel\x12(.datapipe.runtime.v1.EventChannelRequest\x1a).datapipe.runtime.v1.EventChannelResponse(\x010\x01BGZEgithub.com/1uedev/DataPipe/proto/gen/go/datapipe/runtime/v1;runtimev1b\x06proto3"
 
 var (
 	file_datapipe_runtime_v1_runtime_proto_rawDescOnce sync.Once
@@ -1130,7 +1902,7 @@ func file_datapipe_runtime_v1_runtime_proto_rawDescGZIP() []byte {
 }
 
 var file_datapipe_runtime_v1_runtime_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_datapipe_runtime_v1_runtime_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_datapipe_runtime_v1_runtime_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_datapipe_runtime_v1_runtime_proto_goTypes = []any{
 	(RuntimeKind)(0),                  // 0: datapipe.runtime.v1.RuntimeKind
 	(*RegisterRequest)(nil),           // 1: datapipe.runtime.v1.RegisterRequest
@@ -1147,6 +1919,13 @@ var file_datapipe_runtime_v1_runtime_proto_goTypes = []any{
 	(*UnsubscribeFlow)(nil),           // 12: datapipe.runtime.v1.UnsubscribeFlow
 	(*ResolveConnectionRequest)(nil),  // 13: datapipe.runtime.v1.ResolveConnectionRequest
 	(*ResolveConnectionResponse)(nil), // 14: datapipe.runtime.v1.ResolveConnectionResponse
+	(*EventChannelRequest)(nil),       // 15: datapipe.runtime.v1.EventChannelRequest
+	(*ExecutionEvent)(nil),            // 16: datapipe.runtime.v1.ExecutionEvent
+	(*DeadLetterEvent)(nil),           // 17: datapipe.runtime.v1.DeadLetterEvent
+	(*EventChannelResponse)(nil),      // 18: datapipe.runtime.v1.EventChannelResponse
+	(*RunExecution)(nil),              // 19: datapipe.runtime.v1.RunExecution
+	(*CancelExecution)(nil),           // 20: datapipe.runtime.v1.CancelExecution
+	(*ReinjectDeadLetter)(nil),        // 21: datapipe.runtime.v1.ReinjectDeadLetter
 }
 var file_datapipe_runtime_v1_runtime_proto_depIdxs = []int32{
 	0,  // 0: datapipe.runtime.v1.RegisterRequest.kind:type_name -> datapipe.runtime.v1.RuntimeKind
@@ -1154,21 +1933,28 @@ var file_datapipe_runtime_v1_runtime_proto_depIdxs = []int32{
 	9,  // 2: datapipe.runtime.v1.DebugChannelRequest.wire_metrics:type_name -> datapipe.runtime.v1.WireMetricsSnapshot
 	11, // 3: datapipe.runtime.v1.DebugChannelResponse.subscribe:type_name -> datapipe.runtime.v1.SubscribeFlow
 	12, // 4: datapipe.runtime.v1.DebugChannelResponse.unsubscribe:type_name -> datapipe.runtime.v1.UnsubscribeFlow
-	1,  // 5: datapipe.runtime.v1.RuntimeRegistryService.Register:input_type -> datapipe.runtime.v1.RegisterRequest
-	3,  // 6: datapipe.runtime.v1.RuntimeRegistryService.Heartbeat:input_type -> datapipe.runtime.v1.HeartbeatRequest
-	5,  // 7: datapipe.runtime.v1.RuntimeRegistryService.DeployStream:input_type -> datapipe.runtime.v1.DeployStreamRequest
-	7,  // 8: datapipe.runtime.v1.RuntimeRegistryService.DebugChannel:input_type -> datapipe.runtime.v1.DebugChannelRequest
-	13, // 9: datapipe.runtime.v1.RuntimeRegistryService.ResolveConnection:input_type -> datapipe.runtime.v1.ResolveConnectionRequest
-	2,  // 10: datapipe.runtime.v1.RuntimeRegistryService.Register:output_type -> datapipe.runtime.v1.RegisterResponse
-	4,  // 11: datapipe.runtime.v1.RuntimeRegistryService.Heartbeat:output_type -> datapipe.runtime.v1.HeartbeatResponse
-	6,  // 12: datapipe.runtime.v1.RuntimeRegistryService.DeployStream:output_type -> datapipe.runtime.v1.DeployStreamResponse
-	10, // 13: datapipe.runtime.v1.RuntimeRegistryService.DebugChannel:output_type -> datapipe.runtime.v1.DebugChannelResponse
-	14, // 14: datapipe.runtime.v1.RuntimeRegistryService.ResolveConnection:output_type -> datapipe.runtime.v1.ResolveConnectionResponse
-	10, // [10:15] is the sub-list for method output_type
-	5,  // [5:10] is the sub-list for method input_type
-	5,  // [5:5] is the sub-list for extension type_name
-	5,  // [5:5] is the sub-list for extension extendee
-	0,  // [0:5] is the sub-list for field type_name
+	16, // 5: datapipe.runtime.v1.EventChannelRequest.execution_event:type_name -> datapipe.runtime.v1.ExecutionEvent
+	17, // 6: datapipe.runtime.v1.EventChannelRequest.dead_letter_event:type_name -> datapipe.runtime.v1.DeadLetterEvent
+	19, // 7: datapipe.runtime.v1.EventChannelResponse.run_execution:type_name -> datapipe.runtime.v1.RunExecution
+	20, // 8: datapipe.runtime.v1.EventChannelResponse.cancel_execution:type_name -> datapipe.runtime.v1.CancelExecution
+	21, // 9: datapipe.runtime.v1.EventChannelResponse.reinject_dead_letter:type_name -> datapipe.runtime.v1.ReinjectDeadLetter
+	1,  // 10: datapipe.runtime.v1.RuntimeRegistryService.Register:input_type -> datapipe.runtime.v1.RegisterRequest
+	3,  // 11: datapipe.runtime.v1.RuntimeRegistryService.Heartbeat:input_type -> datapipe.runtime.v1.HeartbeatRequest
+	5,  // 12: datapipe.runtime.v1.RuntimeRegistryService.DeployStream:input_type -> datapipe.runtime.v1.DeployStreamRequest
+	7,  // 13: datapipe.runtime.v1.RuntimeRegistryService.DebugChannel:input_type -> datapipe.runtime.v1.DebugChannelRequest
+	13, // 14: datapipe.runtime.v1.RuntimeRegistryService.ResolveConnection:input_type -> datapipe.runtime.v1.ResolveConnectionRequest
+	15, // 15: datapipe.runtime.v1.RuntimeRegistryService.EventChannel:input_type -> datapipe.runtime.v1.EventChannelRequest
+	2,  // 16: datapipe.runtime.v1.RuntimeRegistryService.Register:output_type -> datapipe.runtime.v1.RegisterResponse
+	4,  // 17: datapipe.runtime.v1.RuntimeRegistryService.Heartbeat:output_type -> datapipe.runtime.v1.HeartbeatResponse
+	6,  // 18: datapipe.runtime.v1.RuntimeRegistryService.DeployStream:output_type -> datapipe.runtime.v1.DeployStreamResponse
+	10, // 19: datapipe.runtime.v1.RuntimeRegistryService.DebugChannel:output_type -> datapipe.runtime.v1.DebugChannelResponse
+	14, // 20: datapipe.runtime.v1.RuntimeRegistryService.ResolveConnection:output_type -> datapipe.runtime.v1.ResolveConnectionResponse
+	18, // 21: datapipe.runtime.v1.RuntimeRegistryService.EventChannel:output_type -> datapipe.runtime.v1.EventChannelResponse
+	16, // [16:22] is the sub-list for method output_type
+	10, // [10:16] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_datapipe_runtime_v1_runtime_proto_init() }
@@ -1184,13 +1970,22 @@ func file_datapipe_runtime_v1_runtime_proto_init() {
 		(*DebugChannelResponse_Subscribe)(nil),
 		(*DebugChannelResponse_Unsubscribe)(nil),
 	}
+	file_datapipe_runtime_v1_runtime_proto_msgTypes[14].OneofWrappers = []any{
+		(*EventChannelRequest_ExecutionEvent)(nil),
+		(*EventChannelRequest_DeadLetterEvent)(nil),
+	}
+	file_datapipe_runtime_v1_runtime_proto_msgTypes[17].OneofWrappers = []any{
+		(*EventChannelResponse_RunExecution)(nil),
+		(*EventChannelResponse_CancelExecution)(nil),
+		(*EventChannelResponse_ReinjectDeadLetter)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_datapipe_runtime_v1_runtime_proto_rawDesc), len(file_datapipe_runtime_v1_runtime_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   14,
+			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
