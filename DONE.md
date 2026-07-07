@@ -2,6 +2,11 @@
 
 Reverse chronological. Every finished step gets one entry: date, what was done, requirement IDs touched, commit hash(es).
 
+## 2026-07-07 — Documentation sync and cross-check (post-Increment-6)
+
+* Cross-check of all documentation against the implemented state found and fixed: CLAUDE.md's "Current state" was stale (still named Increment 6 as next after 6 had shipped); `docs/User-Guide.md`/`docs/Admin-Guide.md` still described the post-Increment-4 state (the standing TODO backlog item was skipped during Increments 5 and 6 — the duty is now also a CLAUDE.md ground rule so every session sees it); the repository had no `README.md` (added: quick start, documentation index, layout, dev commands).
+* User Guide rewritten for the current state: full 14-node catalog, connections section incl. test button and rotation-on-reconnect, the entire live-debugging feature set (Inspector ring buffers, load-full, fetch-sample-now, run-once + pinning, debug sidebar, wire pulse/counters, Operator+ gating), demo flow walkthrough, refreshed honest-limitations list. Admin Guide extended: `ResolveConnection` on-demand credential delivery, `POST /connections/{id}/test`, new `/ws/debug` section (auth, rate limits, truncation), troubleshooting rows for live inspection and connection tests. `(37b53cf)`
+
 ## 2026-07-07 — Increment 6: first real connectors
 
 * **Connection resolution** (CON-110/CON-130/SEC-120): new runtime-initiated `ResolveConnection` gRPC RPC on `RuntimeRegistryService` (per ADR-007, runtimes always initiate) hands a connector node its decrypted config/credential over one request/response — never embedded in a deploy push or flow export. `engine/flow.WithConnection`/`ResolveConnection` inject/consume it per-node context, re-resolved on every call so a reconnect loop can pick up rotated credentials without redeploy. `controlplane/internal/api/connresolve.go` is the one legitimate decrypt-on-demand path (`Store.GetCredentialSealed` + `crypto.Vault.Open`), never exposed via any HTTP handler.
