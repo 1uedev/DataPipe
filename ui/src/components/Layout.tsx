@@ -20,6 +20,9 @@ export default function Layout() {
           <Link to="/fleet" className="text-sm text-(--color-text-muted) hover:text-(--color-text)">
             {t('fleet.title')}
           </Link>
+          <Link to="/monitoring" className="text-sm text-(--color-text-muted) hover:text-(--color-text)">
+            {t('monitoring.title')}
+          </Link>
         </div>
         <div className="flex items-center gap-3 text-sm">
           <select

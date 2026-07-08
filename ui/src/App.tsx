@@ -9,6 +9,7 @@ import FlowExecutions from './pages/FlowExecutions'
 import ExecutionDetail from './pages/ExecutionDetail'
 import FlowDeadLetters from './pages/FlowDeadLetters'
 import Fleet from './pages/Fleet'
+import Monitoring from './pages/Monitoring'
 
 function App() {
   return (
@@ -24,6 +25,7 @@ function App() {
           <Route path="/projects/:projectId/flows/:flowId/executions/:executionId" element={<ExecutionDetail />} />
           <Route path="/projects/:projectId/flows/:flowId/dead-letters" element={<FlowDeadLetters />} />
           <Route path="/fleet" element={<Fleet />} />
+          <Route path="/monitoring" element={<Monitoring />} />
         </Route>
       </Route>
     </Routes>
