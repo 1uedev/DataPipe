@@ -110,6 +110,14 @@ message DeployStreamResponse {
   // flow.Deployment.SetDefaultErrorFlow when the flow itself has no
   // settings.errorFlow of its own. "" if the project has none configured.
   string default_error_flow = 4;
+  // log_level is OBS-120's "per-flow log level at runtime without
+  // redeploy": one of "debug"|"info"|"warn"|"error" (default "info" if
+  // empty). Re-sending this message with the SAME flow_id/version/flow_json
+  // but a different log_level (as the control plane's log-level endpoint
+  // does) changes verbosity without restarting any node — ENG-140's
+  // fingerprint-based reconciliation is a no-op when the flow content is
+  // unchanged.
+  string log_level = 5;
 }
 
 // DebugChannelRequest is one message the runtime pushes on the DebugChannel:

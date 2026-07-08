@@ -75,6 +75,7 @@ type DeployedFlowInfo struct {
 	ContentJSON      string
 	DefaultErrorFlow string
 	TargetGroup      string
+	LogLevel         string
 }
 
 // DeployedFlowsLister answers "what's currently deployed", so a runtime
@@ -342,7 +343,7 @@ func (s *Service) DeployStream(req *runtimev1.DeployStreamRequest, stream runtim
 					continue
 				}
 				select {
-				case ch <- &runtimev1.DeployStreamResponse{FlowId: f.FlowID, Version: f.Version, FlowJson: f.ContentJSON, DefaultErrorFlow: f.DefaultErrorFlow}:
+				case ch <- &runtimev1.DeployStreamResponse{FlowId: f.FlowID, Version: f.Version, FlowJson: f.ContentJSON, DefaultErrorFlow: f.DefaultErrorFlow, LogLevel: f.LogLevel}:
 				default:
 				}
 			}
@@ -369,8 +370,12 @@ func (s *Service) DeployStream(req *runtimev1.DeployStreamRequest, stream runtim
 // with no DeviceStore configured (or with SetDeviceStore never called) is
 // always treated as ungrouped, so it only ever receives targetGroup == ""
 // deploys. defaultErrorFlow is the owning project's ERR-120 fallback
-// error-handler flow id.
-func (s *Service) DeployFlow(ctx context.Context, flowID string, version int64, flowJSON, defaultErrorFlow, targetGroup string) error {
+// error-handler flow id. logLevel is OBS-120's per-flow log level; calling
+// DeployFlow again with the SAME flowJSON/version but a different logLevel
+// (as the log-level REST endpoint does) changes verbosity without
+// restarting any node, since ENG-140's fingerprint-based reconciliation is
+// a no-op when the flow content itself hasn't changed.
+func (s *Service) DeployFlow(ctx context.Context, flowID string, version int64, flowJSON, defaultErrorFlow, targetGroup, logLevel string) error {
 	s.mu.Lock()
 	type candidate struct {
 		runtimeID string
@@ -405,7 +410,7 @@ func (s *Service) DeployFlow(ctx context.Context, flowID string, version int64, 
 		return fmt.Errorf("no runtime currently connected in the target scope")
 	}
 
-	cmd := &runtimev1.DeployStreamResponse{FlowId: flowID, Version: version, FlowJson: flowJSON, DefaultErrorFlow: defaultErrorFlow}
+	cmd := &runtimev1.DeployStreamResponse{FlowId: flowID, Version: version, FlowJson: flowJSON, DefaultErrorFlow: defaultErrorFlow, LogLevel: logLevel}
 	for _, ch := range channels {
 		select {
 		case ch <- cmd:

@@ -33,9 +33,10 @@ type rowScanner interface {
 // controlplane/internal/registry. defaultErrorFlow is the owning project's
 // ERR-120 fallback error-handler flow id (Increment 8), "" if none.
 // targetGroup is the flow's runtimeAssignment.group (Increment 9, UI-220),
-// "" for "every connected runtime".
+// "" for "every connected runtime". logLevel is OBS-120's per-flow log
+// level ("" meaning "info").
 type Deployer interface {
-	DeployFlow(ctx context.Context, flowID string, version int64, flowJSON, defaultErrorFlow, targetGroup string) error
+	DeployFlow(ctx context.Context, flowID string, version int64, flowJSON, defaultErrorFlow, targetGroup, logLevel string) error
 }
 
 // ExecutionCommander issues runtime-bound commands for triggered
@@ -126,6 +127,7 @@ func (h *Handlers) Routes() http.Handler {
 	protected.HandleFunc("PATCH /flows/{flowId}", h.updateFlow)
 	protected.HandleFunc("DELETE /flows/{flowId}", h.deleteFlow)
 	protected.HandleFunc("POST /flows/{flowId}/deploy", h.deployFlow)
+	protected.HandleFunc("PATCH /flows/{flowId}/log-level", h.setFlowLogLevel)
 	protected.HandleFunc("GET /flows/{flowId}/versions", h.listFlowVersions)
 	protected.HandleFunc("GET /flows/{flowId}/versions/{version}", h.getFlowVersion)
 	protected.HandleFunc("POST /flows/{flowId}/versions/{version}/rollback", h.rollbackFlow)

@@ -65,7 +65,7 @@ type deployCall struct {
 
 var errFakeDeployUnavailable = errors.New("no runtime connected (test double)")
 
-func (f *fakeDeployer) DeployFlow(ctx context.Context, flowID string, version int64, flowJSON, defaultErrorFlow, targetGroup string) error {
+func (f *fakeDeployer) DeployFlow(ctx context.Context, flowID string, version int64, flowJSON, defaultErrorFlow, targetGroup, logLevel string) error {
 	if f.fail {
 		return errFakeDeployUnavailable
 	}

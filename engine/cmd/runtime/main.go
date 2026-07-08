@@ -79,6 +79,13 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// OBS-120: structured JSON logs, dynamically re-levelable per flow at
+	// runtime (logLevelVar, set from applyDeploy) without a redeploy —
+	// slog.LevelVar is exactly the "already-constructed handler whose
+	// verbosity can change later" primitive this needs.
+	logLevelVar := new(slog.LevelVar)
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevelVar})))
+
 	httpAddr := envOr("RUNTIME_HTTP_ADDR", ":8081")
 	webhookAddr := envOr("RUNTIME_WEBHOOK_ADDR", ":8090")
 	controlPlaneAddr := envOr("CONTROLPLANE_GRPC_ADDR", "localhost:9090")
@@ -146,7 +153,7 @@ func main() {
 	}()
 
 	go func() {
-		err := runtimeclient.Run(ctx, controlPlaneAddr, runtimeID, version, enrollmentToken, healthSrv.SetReady, applyDeploy(deployment), debugSink, deployment, connResolver, eventSink, deployment, healthProvider)
+		err := runtimeclient.Run(ctx, controlPlaneAddr, runtimeID, version, enrollmentToken, healthSrv.SetReady, applyDeploy(deployment, logLevelVar), debugSink, deployment, connResolver, eventSink, deployment, healthProvider)
 		if err != nil && ctx.Err() == nil {
 			slog.Error("runtime client stopped unexpectedly", "error", err)
 		}
@@ -163,8 +170,12 @@ func main() {
 // applyDeploy parses and applies one pushed flow onto deployment, hot-
 // swapping only the affected nodes (ENG-140). Errors are logged, not
 // fatal — a bad deploy push must never take the runtime down (ARC-150).
-func applyDeploy(deployment *flow.Deployment) runtimeclient.DeployHandler {
-	return func(ctx context.Context, flowID string, ver int64, flowJSON, defaultErrorFlow string) {
+// logLevelVar is OBS-120's per-flow log level: resending the SAME
+// flowId/version/flowJSON with a different logLevel string re-applies
+// deployment.Deploy (a no-op restart-wise, per ENG-140 fingerprinting)
+// purely to pick up the new verbosity.
+func applyDeploy(deployment *flow.Deployment, logLevelVar *slog.LevelVar) runtimeclient.DeployHandler {
+	return func(ctx context.Context, flowID string, ver int64, flowJSON, defaultErrorFlow, logLevel string) {
 		ff, err := flow.Parse([]byte(flowJSON))
 		if err != nil {
 			slog.Error("received undeployable flow: parse failed", "flowId", flowID, "version", ver, "error", err)
@@ -179,11 +190,28 @@ func applyDeploy(deployment *flow.Deployment) runtimeclient.DeployHandler {
 		// GET .../executions would key against a value nothing ever reports.
 		ff.ID = flowID
 		deployment.SetDefaultErrorFlow(defaultErrorFlow)
+		logLevelVar.Set(parseLogLevel(logLevel))
 		if err := deployment.Deploy(ctx, ff); err != nil {
 			slog.Error("deploy failed", "flowId", flowID, "version", ver, "error", err)
 			return
 		}
-		slog.Info("flow deployed", "flowId", flowID, "version", ver)
+		slog.Info("flow deployed", "flowId", flowID, "version", ver, "logLevel", logLevel)
+	}
+}
+
+// parseLogLevel maps OBS-120's per-flow log-level string onto slog.Level,
+// defaulting to Info for "" or anything unrecognized rather than failing a
+// deploy over a cosmetic setting.
+func parseLogLevel(s string) slog.Level {
+	switch s {
+	case "debug":
+		return slog.LevelDebug
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
 	}
 }
 

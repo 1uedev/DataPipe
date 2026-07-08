@@ -24,8 +24,12 @@ type Flow struct {
 	Name            string          `json:"name"`
 	Content         json.RawMessage `json:"content"`
 	DeployedVersion *int64          `json:"deployedVersion"`
-	CreatedAt       time.Time       `json:"createdAt"`
-	UpdatedAt       time.Time       `json:"updatedAt"`
+	// LogLevel is OBS-120's per-flow log level ("debug"|"info"|"warn"|
+	// "error"), deliberately outside the versioned flow content — see
+	// SetFlowLogLevel.
+	LogLevel  string    `json:"logLevel"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 // FlowVersion is immutable once created (VCS-110): "every deploy creates an
@@ -42,7 +46,7 @@ type FlowVersion struct {
 
 func (s *Store) CreateFlow(ctx context.Context, projectID, name string, content json.RawMessage) (*Flow, error) {
 	now := time.Now().UTC()
-	f := &Flow{ID: uuid.NewString(), ProjectID: projectID, Name: name, Content: content, CreatedAt: now, UpdatedAt: now}
+	f := &Flow{ID: uuid.NewString(), ProjectID: projectID, Name: name, Content: content, LogLevel: "info", CreatedAt: now, UpdatedAt: now}
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO flows (id, project_id, name, draft_content, deployed_version, created_at, updated_at) VALUES (?, ?, ?, ?, NULL, ?, ?)`,
 		f.ID, f.ProjectID, f.Name, string(f.Content), now.Format(time.RFC3339), now.Format(time.RFC3339))
@@ -53,12 +57,12 @@ func (s *Store) CreateFlow(ctx context.Context, projectID, name string, content 
 }
 
 func (s *Store) GetFlow(ctx context.Context, id string) (*Flow, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, project_id, name, draft_content, deployed_version, created_at, updated_at FROM flows WHERE id = ?`, id)
+	row := s.db.QueryRowContext(ctx, `SELECT id, project_id, name, draft_content, deployed_version, log_level, created_at, updated_at FROM flows WHERE id = ?`, id)
 	return scanFlow(row)
 }
 
 func (s *Store) ListFlows(ctx context.Context, projectID string) ([]*Flow, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, project_id, name, draft_content, deployed_version, created_at, updated_at FROM flows WHERE project_id = ? ORDER BY name`, projectID)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, project_id, name, draft_content, deployed_version, log_level, created_at, updated_at FROM flows WHERE project_id = ? ORDER BY name`, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("api: listing flows: %w", err)
 	}
@@ -100,6 +104,25 @@ func (s *Store) DeleteFlow(ctx context.Context, id string) error {
 	return err
 }
 
+// SetFlowLogLevel persists OBS-120's per-flow log level, deliberately
+// outside flow content/versioning — callers are responsible for re-pushing
+// the flow's current deployed content (unchanged) with the new level so a
+// connected runtime picks it up without a real redeploy.
+func (s *Store) SetFlowLogLevel(ctx context.Context, id, level string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE flows SET log_level = ? WHERE id = ?`, level, id)
+	if err != nil {
+		return fmt.Errorf("api: setting flow log level: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("api: setting flow log level: %w", err)
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 // DeployedFlow is one currently-deployed flow's canonical content, for
 // pushing to a runtime that just (re)registered (ERR-150: "runtime restart
 // restores all deployed flows... automatically").
@@ -109,15 +132,17 @@ type DeployedFlow struct {
 	ContentJSON      string
 	DefaultErrorFlow string
 	TargetGroup      string
+	LogLevel         string
 }
 
 // ListDeployedFlows returns every flow that currently has a deployed
 // version, with its deployed content, owning project's ERR-120 default
-// error-handler flow id, and UI-220 runtime-group assignment (parsed out
-// of the content itself — runtimeAssignment isn't a separate column).
+// error-handler flow id, OBS-120 log level, and UI-220 runtime-group
+// assignment (parsed out of the content itself — runtimeAssignment isn't a
+// separate column).
 func (s *Store) ListDeployedFlows(ctx context.Context) ([]DeployedFlow, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT f.id, fv.version, fv.content, p.default_error_flow
+		SELECT f.id, fv.version, fv.content, p.default_error_flow, f.log_level
 		FROM flows f
 		JOIN flow_versions fv ON fv.flow_id = f.id AND fv.version = f.deployed_version
 		JOIN projects p ON p.id = f.project_id
@@ -132,7 +157,7 @@ func (s *Store) ListDeployedFlows(ctx context.Context) ([]DeployedFlow, error) {
 		var d DeployedFlow
 		var content string
 		var defaultErrorFlow sql.NullString
-		if err := rows.Scan(&d.FlowID, &d.Version, &content, &defaultErrorFlow); err != nil {
+		if err := rows.Scan(&d.FlowID, &d.Version, &content, &defaultErrorFlow, &d.LogLevel); err != nil {
 			return nil, fmt.Errorf("api: scanning deployed flow: %w", err)
 		}
 		d.ContentJSON = content
@@ -219,7 +244,7 @@ func scanFlow(row rowScanner) (*Flow, error) {
 	var f Flow
 	var content, createdAt, updatedAt string
 	var deployedVersion sql.NullInt64
-	if err := row.Scan(&f.ID, &f.ProjectID, &f.Name, &content, &deployedVersion, &createdAt, &updatedAt); err != nil {
+	if err := row.Scan(&f.ID, &f.ProjectID, &f.Name, &content, &deployedVersion, &f.LogLevel, &createdAt, &updatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, sql.ErrNoRows
 		}
@@ -382,6 +407,67 @@ func (h *Handlers) deleteFlow(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+var validLogLevels = map[string]bool{"debug": true, "info": true, "warn": true, "error": true}
+
+// setFlowLogLevel implements OBS-120's "per-flow log level at runtime
+// without redeploy": it persists the new level (outside flow content/
+// versioning, so it never bumps the flow's version) and, if the flow is
+// currently deployed, re-pushes its unchanged deployed content with the new
+// level so a connected runtime picks it up immediately — ENG-140's
+// fingerprint-based reconciliation means this restarts no node.
+func (h *Handlers) setFlowLogLevel(w http.ResponseWriter, r *http.Request) {
+	user, ok := currentUser(w, r)
+	if !ok {
+		return
+	}
+	f, ok := h.flowAndAuthorize(w, r, user, auth.RoleEditor)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		Level string `json:"level"`
+	}
+	if err := readJSON(r, &req); err != nil || !validLogLevels[req.Level] {
+		writeError(w, http.StatusBadRequest, "level must be one of debug, info, warn, error")
+		return
+	}
+
+	if err := h.store.SetFlowLogLevel(r.Context(), f.ID, req.Level); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	f.LogLevel = req.Level
+
+	if f.DeployedVersion != nil {
+		deployed, err := h.store.GetFlowVersion(r.Context(), f.ID, *f.DeployedVersion)
+		if err == nil {
+			ff, perr := flow.Parse(deployed.Content)
+			if perr == nil {
+				project, perr2 := h.store.GetProject(r.Context(), f.ProjectID)
+				if perr2 == nil {
+					defaultErrorFlow := ""
+					if project.DefaultErrorFlow != nil {
+						defaultErrorFlow = *project.DefaultErrorFlow
+					}
+					targetGroup := ""
+					if ff.RuntimeAssignment != nil {
+						targetGroup = ff.RuntimeAssignment.Group
+					}
+					// Best-effort: a runtime being briefly unreachable
+					// shouldn't block persisting the setting — it's picked
+					// up on the runtime's next reconnect either way
+					// (DeployStream re-push already includes LogLevel).
+					_ = h.deployer.DeployFlow(r.Context(), f.ID, *f.DeployedVersion, string(deployed.Content), defaultErrorFlow, targetGroup, req.Level)
+				}
+			}
+		}
+	}
+
+	h.audit(r, user.ID, "flow.setLogLevel", "flow", f.ID, f.ProjectID, nil, map[string]string{"level": req.Level})
+	writeJSON(w, http.StatusOK, f)
+}
+
 // deployFlow implements VCS-110 + ARC-110: validate the current draft
 // against the same rules the runtime enforces (engine/flow.Validate),
 // snapshot it as a new immutable version, and push it to the assigned
@@ -436,7 +522,7 @@ func (h *Handlers) deployFlow(w http.ResponseWriter, r *http.Request) {
 		targetGroup = ff.RuntimeAssignment.Group
 	}
 
-	if err := h.deployer.DeployFlow(r.Context(), f.ID, version.Version, string(canonical), defaultErrorFlow, targetGroup); err != nil {
+	if err := h.deployer.DeployFlow(r.Context(), f.ID, version.Version, string(canonical), defaultErrorFlow, targetGroup, f.LogLevel); err != nil {
 		writeError(w, http.StatusConflict, "no runtime available to deploy to: "+err.Error())
 		return
 	}
@@ -553,7 +639,7 @@ func (h *Handlers) rollbackFlow(w http.ResponseWriter, r *http.Request) {
 		targetGroup = ff.RuntimeAssignment.Group
 	}
 
-	if err := h.deployer.DeployFlow(r.Context(), f.ID, newVersion.Version, string(canonical), defaultErrorFlow, targetGroup); err != nil {
+	if err := h.deployer.DeployFlow(r.Context(), f.ID, newVersion.Version, string(canonical), defaultErrorFlow, targetGroup, f.LogLevel); err != nil {
 		writeError(w, http.StatusConflict, "no runtime available to deploy to: "+err.Error())
 		return
 	}

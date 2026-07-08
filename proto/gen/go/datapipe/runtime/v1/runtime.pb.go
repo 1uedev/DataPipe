@@ -443,8 +443,16 @@ type DeployStreamResponse struct {
 	// flow.Deployment.SetDefaultErrorFlow when the flow itself has no
 	// settings.errorFlow of its own. "" if the project has none configured.
 	DefaultErrorFlow string `protobuf:"bytes,4,opt,name=default_error_flow,json=defaultErrorFlow,proto3" json:"default_error_flow,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// log_level is OBS-120's "per-flow log level at runtime without
+	// redeploy": one of "debug"|"info"|"warn"|"error" (default "info" if
+	// empty). Re-sending this message with the SAME flow_id/version/flow_json
+	// but a different log_level (as the control plane's log-level endpoint
+	// does) changes verbosity without restarting any node — ENG-140's
+	// fingerprint-based reconciliation is a no-op when the flow content is
+	// unchanged.
+	LogLevel      string `protobuf:"bytes,5,opt,name=log_level,json=logLevel,proto3" json:"log_level,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *DeployStreamResponse) Reset() {
@@ -501,6 +509,13 @@ func (x *DeployStreamResponse) GetFlowJson() string {
 func (x *DeployStreamResponse) GetDefaultErrorFlow() string {
 	if x != nil {
 		return x.DefaultErrorFlow
+	}
+	return ""
+}
+
+func (x *DeployStreamResponse) GetLogLevel() string {
+	if x != nil {
+		return x.LogLevel
 	}
 	return ""
 }
@@ -1864,12 +1879,13 @@ const file_datapipe_runtime_v1_runtime_proto_rawDesc = "" +
 	"\x13DeployStreamRequest\x12\x1d\n" +
 	"\n" +
 	"runtime_id\x18\x01 \x01(\tR\truntimeId\x12#\n" +
-	"\rsession_token\x18\x02 \x01(\tR\fsessionToken\"\x94\x01\n" +
+	"\rsession_token\x18\x02 \x01(\tR\fsessionToken\"\xb1\x01\n" +
 	"\x14DeployStreamResponse\x12\x17\n" +
 	"\aflow_id\x18\x01 \x01(\tR\x06flowId\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\x03R\aversion\x12\x1b\n" +
 	"\tflow_json\x18\x03 \x01(\tR\bflowJson\x12,\n" +
-	"\x12default_error_flow\x18\x04 \x01(\tR\x10defaultErrorFlow\"\xec\x01\n" +
+	"\x12default_error_flow\x18\x04 \x01(\tR\x10defaultErrorFlow\x12\x1b\n" +
+	"\tlog_level\x18\x05 \x01(\tR\blogLevel\"\xec\x01\n" +
 	"\x13DebugChannelRequest\x12\x1d\n" +
 	"\n" +
 	"runtime_id\x18\x01 \x01(\tR\truntimeId\x12#\n" +

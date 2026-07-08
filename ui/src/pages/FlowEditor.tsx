@@ -93,6 +93,12 @@ export default function FlowEditor() {
     }
   }
 
+  async function onLogLevelChange(level: Flow['logLevel']) {
+    if (!flow) return
+    const updated = await api.setFlowLogLevel(flow.id, level)
+    setFlow(updated)
+  }
+
   async function onDeploy() {
     if (!flow) return
     setDeployState('deploying')
@@ -172,6 +178,18 @@ export default function FlowEditor() {
                 {g.name}
               </option>
             ))}
+          </select>
+          <select
+            aria-label={t('editor.logLevel')}
+            title={t('editor.logLevel')}
+            value={flow.logLevel}
+            onChange={(e) => void onLogLevelChange(e.target.value as Flow['logLevel'])}
+            className="rounded border border-(--color-border) bg-transparent px-1.5 py-1 text-xs"
+          >
+            <option value="debug">{t('editor.logLevel.debug')}</option>
+            <option value="info">{t('editor.logLevel.info')}</option>
+            <option value="warn">{t('editor.logLevel.warn')}</option>
+            <option value="error">{t('editor.logLevel.error')}</option>
           </select>
         </div>
         <div className="flex items-center gap-1.5">

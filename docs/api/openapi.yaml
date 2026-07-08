@@ -280,6 +280,34 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "409": { description: No runtime currently connected to deploy to }
 
+  /flows/{flowId}/log-level:
+    parameters:
+      - $ref: "#/components/parameters/FlowId"
+    patch:
+      summary: >
+        Set OBS-120's per-flow log level (Editor+). Persisted outside the
+        flow's versioned content — never bumps the flow's version. If the
+        flow is currently deployed, its unchanged deployed content is
+        re-pushed with the new level so a connected runtime picks it up
+        immediately, without restarting any node (ENG-140).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [level]
+              properties:
+                level: { type: string, enum: [debug, info, warn, error] }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Flow" }
+        "400": { description: Unknown level }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
   /flows/{flowId}/versions:
     parameters:
       - $ref: "#/components/parameters/FlowId"
@@ -1007,6 +1035,10 @@ components:
         deployedVersion:
           type: integer
           nullable: true
+        logLevel:
+          type: string
+          enum: [debug, info, warn, error]
+          description: OBS-120 per-flow log level; see PATCH /flows/{flowId}/log-level.
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
 

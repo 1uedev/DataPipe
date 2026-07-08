@@ -81,6 +81,10 @@ export function deployFlow(flowId: string, comment: string) {
   return request<FlowVersion>(`/flows/${flowId}/deploy`, { method: 'POST', body: { comment } })
 }
 
+export function setFlowLogLevel(flowId: string, level: 'debug' | 'info' | 'warn' | 'error') {
+  return request<Flow>(`/flows/${flowId}/log-level`, { method: 'PATCH', body: { level } })
+}
+
 export function listFlowVersions(flowId: string) {
   return request<FlowVersion[]>(`/flows/${flowId}/versions`)
 }

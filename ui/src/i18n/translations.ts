@@ -70,6 +70,11 @@ export const translations = {
     'editor.deploy.noRuntime': 'No runtime is currently connected to deploy to.',
     'editor.deployTarget': 'Deploy target',
     'editor.deployTarget.default': 'Any runtime',
+    'editor.logLevel': 'Log level',
+    'editor.logLevel.debug': 'Debug',
+    'editor.logLevel.info': 'Info',
+    'editor.logLevel.warn': 'Warn',
+    'editor.logLevel.error': 'Error',
 
     'config.title': 'Configuration',
     'config.tab.config': 'Config',
@@ -264,6 +269,11 @@ export const translations = {
     'editor.deploy.noRuntime': 'Derzeit ist keine Runtime verbunden.',
     'editor.deployTarget': 'Ziel-Runtime',
     'editor.deployTarget.default': 'Beliebige Runtime',
+    'editor.logLevel': 'Log-Level',
+    'editor.logLevel.debug': 'Debug',
+    'editor.logLevel.info': 'Info',
+    'editor.logLevel.warn': 'Warnung',
+    'editor.logLevel.error': 'Fehler',
 
     'config.title': 'Konfiguration',
     'config.tab.config': 'Konfiguration',

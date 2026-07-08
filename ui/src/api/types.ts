@@ -21,6 +21,7 @@ export interface Flow {
   name: string
   content: FlowFileContent
   deployedVersion: number | null
+  logLevel: 'debug' | 'info' | 'warn' | 'error'
   createdAt: string
   updatedAt: string
 }

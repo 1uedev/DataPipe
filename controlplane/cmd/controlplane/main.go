@@ -84,6 +84,12 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// OBS-120: structured JSON logs, correlated by whatever key/value pairs
+	// each call site already attaches (flowId/nodeId/executionId/runtimeId
+	// etc — slog's attrs become JSON fields directly, no separate
+	// correlation mechanism needed).
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+
 	httpAddr := envOr("CONTROLPLANE_HTTP_ADDR", ":8080")
 	grpcAddr := envOr("CONTROLPLANE_GRPC_ADDR", ":9090")
 	dsn := envOr("DATABASE_URL", "postgres://datapipe:datapipe@localhost:5432/datapipe?sslmode=disable")
