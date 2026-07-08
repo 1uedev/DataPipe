@@ -696,6 +696,59 @@ paths:
                 type: array
                 items: { $ref: "#/components/schemas/Alert" }
 
+  /backup:
+    get:
+      summary: >
+        Export a consistent snapshot of all configuration (System Admin,
+        OBS-150): users, projects, flows + versions, connections,
+        credentials (already envelope-encrypted at rest — SEC-120; the
+        bundle carries only sealed ciphertext, never a decrypted value),
+        fleet (runtime groups/enrollment tokens/devices), and alert rules.
+        Deliberately excludes sessions, the audit log, and
+        operational/debug history (executions, dead letters, debug pins,
+        fired alert instances) — see docs/Admin-Guide.md's restore
+        procedure for the full rationale. Scheduled backups are not
+        implemented (SHOULD, P2).
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BackupBundle" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /backup/restore:
+    post:
+      summary: >
+        Restore a previously exported bundle (System Admin). Destructive:
+        replaces ALL current configuration (and clears dependent
+        operational tables) with the bundle's contents — not a merge. The
+        caller's own session is deleted as a side effect of replacing the
+        users table; log in again afterward. A credential restored under a
+        different DATAPIPE_MASTER_KEY than the one that sealed it becomes
+        permanently unreadable. Requires "confirm": true to guard against
+        an accidental call.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirm, bundle]
+              properties:
+                confirm: { type: boolean }
+                bundle: { $ref: "#/components/schemas/BackupBundle" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  restored: { type: boolean }
+        "400": { description: Missing "confirm" or invalid body }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
   /audit-log:
     get:
       summary: Read the tamper-evident audit log (System/Project Admin)
@@ -1190,6 +1243,30 @@ components:
         message: { type: string }
         firedAt: { type: string, format: date-time }
         resolvedAt: { type: string, format: date-time, nullable: true }
+
+    BackupBundle:
+      type: object
+      description: >
+        OBS-150's exportable/restorable configuration snapshot. Field
+        shapes below mirror the underlying tables directly (snake_case DB
+        columns, camelCase JSON) rather than the friendlier per-resource
+        schemas elsewhere in this document, since a bundle is meant to be
+        opaque round-trip data (export it, store it, restore it) rather
+        than something a client constructs field-by-field.
+      properties:
+        formatVersion: { type: integer }
+        exportedAt: { type: string, format: date-time }
+        users: { type: array, items: { type: object } }
+        projects: { type: array, items: { type: object } }
+        projectMembers: { type: array, items: { type: object } }
+        flows: { type: array, items: { type: object } }
+        flowVersions: { type: array, items: { type: object } }
+        connections: { type: array, items: { type: object } }
+        credentials: { type: array, items: { type: object }, description: "Sealed (SEC-120 envelope-encrypted) fields only — never a decrypted value" }
+        runtimeGroups: { type: array, items: { type: object } }
+        runtimeEnrollTokens: { type: array, items: { type: object } }
+        devices: { type: array, items: { type: object } }
+        alertRules: { type: array, items: { type: object } }
 
     AuditEntry:
       type: object

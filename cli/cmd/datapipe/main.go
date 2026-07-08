@@ -60,6 +60,8 @@ func main() {
 		fmt.Println("datapipe " + version)
 	case "deploy":
 		err = runDeploy(os.Args[2:])
+	case "backup":
+		err = runBackup(os.Args[2:])
 	default:
 		usage()
 		os.Exit(1)
@@ -71,7 +73,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: datapipe version | datapipe deploy <flow.json> [-for <duration>]")
+	fmt.Fprintln(os.Stderr, "usage: datapipe version | datapipe deploy <flow.json> [-for <duration>] | datapipe backup export|restore ...")
 }
 
 func runDeploy(args []string) error {

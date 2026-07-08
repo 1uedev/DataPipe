@@ -118,9 +118,19 @@ A node's `errorPolicy.onError: "storeForward"` (set in the flow JSON; no config-
 
 `make build-edge` (from the repo root) cross-compiles a static, `CGO_ENABLED=0` runtime binary for `linux/arm64` by default (`EDGE_GOARCH=amd64` for x86-64 edge boxes), written to `dist/datapipe-runtime-linux-<arch>` — roughly 22 MB, no libc dependency, so it runs unmodified on a minimal/musl-based edge image. **Honestly unverified in this environment:** the binary has been confirmed to actually be a `linux/arm64` ELF (via `file`) and cross-compiles cleanly, but has never run on physical ARM64 hardware, and no real prolonged (30-minute) network partition was exercised — only a simulated "destination unreachable" and a full local process restart, which exercise the same store-and-forward code path but aren't the same as real hardware over a real outage. See TODO.md.
 
-## 9. Backup and restore
+## 9. Backup and restore (OBS-150)
 
-Back up three things: the database (`pg_dump` for PostgreSQL, or a copy of the SQLite file taken while the control plane is stopped), the `DATAPIPE_MASTER_KEY` (separately, in a secret manager — a DB backup without the key has unrecoverable credentials), and your `deploy/` configuration. Restore = restore DB, set the same master key, start the control plane (migrations verify the schema), restart runtimes (they re-register and receive their flows on the next deploy).
+Two complementary ways to back up a control plane, use whichever fits your operational tooling:
+
+**Application-level (recommended for routine backups)** — `GET /api/v1/backup` (System Admin) exports a single consistent JSON snapshot of every configuration table: users, projects, flows + all versions, connections, credentials (already envelope-encrypted at rest, SEC-120 — the export carries only sealed ciphertext/wrapped-DEK fields, never a decrypted secret value), fleet state (runtime groups, enrollment tokens, devices), and alert rules. It deliberately excludes sessions, the audit log, and operational/debug history (executions, dead letters, debug pins, fired alert instances) — those are either meaningless to replay (rows keyed to ids that may not exist post-restore) or actively misleading (replaying history that never happened on the restored instance).
+
+The CLI wraps this: `datapipe backup export -url http://<host>:8080/api/v1 -username <admin> -password <pw> -out backup.json` (or set `DATAPIPE_TOKEN` instead of `-username`/`-password` if you already have a session). Restore with `datapipe backup restore -url ... -in backup.json -yes` — the `-yes` flag is required because restore is **destructive**: it replaces ALL current configuration with the bundle's contents (not a merge), and as a consequence of replacing the `users` table it deletes every existing session, including the one just used to call restore — log in again afterward. You can also call `POST /api/v1/backup/restore` directly with `{"confirm": true, "bundle": <the exported JSON>}`.
+
+A restored credential is only readable again if the target control plane runs under the **same** `DATAPIPE_MASTER_KEY` that sealed it originally — restoring a bundle onto an instance with a different master key leaves those specific credentials permanently undecryptable (the sealed ciphertext is still there, just unopenable; nothing else in the bundle is affected).
+
+**Database-level (disaster recovery, covers everything including sessions/audit log)** — `pg_dump` for PostgreSQL, or a copy of the SQLite file taken while the control plane is stopped, plus the `DATAPIPE_MASTER_KEY` backed up separately in a secret manager (a DB backup without the key has unrecoverable credentials, same caveat as above), plus your `deploy/` configuration. Restore = restore the DB file/dump, set the same master key, start the control plane (migrations verify the schema is current), restart runtimes (they re-register and receive their flows on the next deploy).
+
+Scheduled/automatic backups are not implemented (spec SHOULD/P2) — run either procedure above from your own cron/scheduler.
 
 ## 10. Live debug channel
 
@@ -138,7 +148,7 @@ Since Increment 5 the editor's live inspection runs over a WebSocket at `/ws/deb
 | Live inspection shows nothing | Is the user at least Operator in the project? Does `/ws/debug` reach the control plane (reverse proxies must allow WebSocket upgrade)? |
 | Connection test fails | The response contains the real dial error (e.g. `connection refused`); verify host/port from the control plane's network perspective — the test runs there, not on the runtime |
 
-Health endpoints: control plane `:8080/healthz`, runtime `:8081/healthz` (compose maps it to 8082). Prometheus metrics (OBS-100) are specified but not implemented yet.
+Health endpoints: control plane `:8080/healthz`, runtime `:8081/healthz` (compose maps it to 8082). Prometheus-format metrics (OBS-100) are exposed per-runtime at `GET :8081/metrics` (node/wire throughput, processing-time histograms, runtime CPU/memory) — pull-based and per-instance, since ARC-210's outbound-only architecture means the control plane cannot reach into an edge runtime to scrape it centrally.
 
 ## 12. Upgrades
 
