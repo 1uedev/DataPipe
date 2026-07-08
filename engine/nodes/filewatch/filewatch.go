@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -101,7 +102,18 @@ type Config struct {
 	PostAction         PostAction               `json:"postAction,omitempty"`
 }
 
-type node struct{ cfg Config }
+type node struct {
+	cfg Config
+
+	// inFlight tracks paths currently being debounced/processed so that
+	// the CREATE and WRITE events a single write (e.g. os.WriteFile's
+	// open+write+close) commonly generates don't each spawn their own
+	// processFile goroutine — without this, every one of them independently
+	// waits for stability and then re-emits the whole file, producing
+	// duplicate datagrams for one real file change.
+	inFlightMu sync.Mutex
+	inFlight   map[string]bool
+}
 
 // New is the flow.Factory for the "file-watch" node type.
 func New(raw json.RawMessage) (any, error) {
@@ -120,7 +132,7 @@ func New(raw json.RawMessage) (any, error) {
 	default:
 		return nil, fmt.Errorf("file-watch: unknown format %q", cfg.Format)
 	}
-	return &node{cfg: cfg}, nil
+	return &node{cfg: cfg, inFlight: make(map[string]bool)}, nil
 }
 
 func (n *node) Run(ctx context.Context, emit func(port string, d datagram.Datagram) error) error {
@@ -185,10 +197,24 @@ func (n *node) handleEvent(ctx context.Context, watcher *fsnotify.Watcher, event
 		return
 	}
 
+	n.inFlightMu.Lock()
+	alreadyProcessing := n.inFlight[event.Name]
+	n.inFlight[event.Name] = true
+	n.inFlightMu.Unlock()
+	if alreadyProcessing {
+		return
+	}
+
 	go n.processFile(ctx, event.Name, emit)
 }
 
 func (n *node) processFile(ctx context.Context, path string, emit func(string, datagram.Datagram) error) {
+	defer func() {
+		n.inFlightMu.Lock()
+		delete(n.inFlight, path)
+		n.inFlightMu.Unlock()
+	}()
+
 	stability := n.cfg.StabilityMs
 	if stability == 0 {
 		stability = DefaultStabilityMs
