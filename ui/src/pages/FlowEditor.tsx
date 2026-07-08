@@ -9,6 +9,7 @@ import { Palette } from '../components/Palette'
 import { FlowCanvas } from '../components/FlowCanvas'
 import { ConfigPanel } from '../components/ConfigPanel'
 import { DebugSidebar } from '../components/DebugSidebar'
+import { Tutorial } from '../components/Tutorial'
 import { canvasToContent, contentToCanvas } from '../utils/flowConversion'
 import { downloadJSON } from '../utils/download'
 import { useDebugStore } from '../store/debug'
@@ -28,6 +29,7 @@ export default function FlowEditor() {
   const [deployMessage, setDeployMessage] = useState('')
   const [deployComment, setDeployComment] = useState('')
   const [showDebugSidebar, setShowDebugSidebar] = useState(false)
+  const [showTutorial, setShowTutorial] = useState(false)
 
   const nodes = useEditorStore((s) => s.nodes)
   const edges = useEditorStore((s) => s.edges)
@@ -57,6 +59,7 @@ export default function FlowEditor() {
       setProfileId(f.activeProfileId ?? '')
       const { nodes, edges } = contentToCanvas(f.content)
       load(nodes, edges, f.content.disabled ?? false)
+      setShowTutorial(f.content.graph.nodes.length === 0)
       void api.listEnvProfiles(f.projectId).then(setEnvProfiles)
     })
     void api.listNodeTypes().then(setNodeTypes)
@@ -242,6 +245,13 @@ export default function FlowEditor() {
           >
             {t('debugSidebar.title')}
           </button>
+          <button
+            onClick={() => setShowTutorial((v) => !v)}
+            title={t('tutorial.title')}
+            className={`rounded border border-(--color-border) px-2 py-1 ${showTutorial ? 'text-(--color-accent)' : ''}`}
+          >
+            {t('tutorial.title')}
+          </button>
           <button onClick={() => void onSave()} disabled={saving} className="rounded border border-(--color-border) px-2 py-1">
             {t('editor.save')}
           </button>
@@ -275,10 +285,11 @@ export default function FlowEditor() {
 
       <div className="flex flex-1 overflow-hidden">
         <Palette nodeTypes={nodeTypes} />
-        <div className="flex flex-1 flex-col overflow-hidden">
+        <div className="relative flex flex-1 flex-col overflow-hidden">
           <ReactFlowProvider>
             <FlowCanvas nodeTypes={nodeTypes} />
           </ReactFlowProvider>
+          {showTutorial && <Tutorial deployed={flow.deployedVersion != null} onClose={() => setShowTutorial(false)} />}
           {showDebugSidebar && <DebugSidebar onClose={() => setShowDebugSidebar(false)} />}
         </div>
         {selectedNode && (

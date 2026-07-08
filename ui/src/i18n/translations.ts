@@ -46,6 +46,9 @@ export const translations = {
     'connections.testing': 'Testing…',
     'connections.delete': 'Delete',
 
+    'templates.title': 'Template gallery',
+    'templates.use': 'Use template',
+
     'profiles.title': 'Environment profiles',
     'profiles.empty': 'No profiles yet.',
     'profiles.empty.values': 'No values.',
@@ -128,6 +131,13 @@ export const translations = {
     'debugSidebar.clear': 'Clear',
     'debugSidebar.toggle': 'Toggle debug sidebar',
     'debugSidebar.filterAll': 'All nodes',
+
+    'tutorial.title': 'Tutorial',
+    'tutorial.close': 'Close tutorial',
+    'tutorial.step1': 'Drag an Inject node onto the canvas',
+    'tutorial.step2': 'Add a transform node (e.g. Calculator or Set) and wire Inject into it',
+    'tutorial.step3': 'Add a Debug node and wire the transform node into it',
+    'tutorial.step4': 'Deploy the flow to see it run',
 
     'executions.title': 'Executions',
     'executions.back': 'Back to flow',
@@ -290,6 +300,9 @@ export const translations = {
     'connections.testing': 'Wird getestet…',
     'connections.delete': 'Löschen',
 
+    'templates.title': 'Vorlagen-Galerie',
+    'templates.use': 'Vorlage verwenden',
+
     'profiles.title': 'Umgebungsprofile',
     'profiles.empty': 'Noch keine Profile.',
     'profiles.empty.values': 'Keine Werte.',
@@ -372,6 +385,13 @@ export const translations = {
     'debugSidebar.clear': 'Leeren',
     'debugSidebar.toggle': 'Debug-Seitenleiste umschalten',
     'debugSidebar.filterAll': 'Alle Nodes',
+
+    'tutorial.title': 'Tutorial',
+    'tutorial.close': 'Tutorial schließen',
+    'tutorial.step1': 'Einen Inject-Knoten auf die Arbeitsfläche ziehen',
+    'tutorial.step2': 'Einen Transformationsknoten (z. B. Calculator oder Set) hinzufügen und Inject damit verbinden',
+    'tutorial.step3': 'Einen Debug-Knoten hinzufügen und den Transformationsknoten damit verbinden',
+    'tutorial.step4': 'Den Flow bereitstellen, um ihn laufen zu sehen',
 
     'executions.title': 'Ausführungen',
     'executions.back': 'Zurück zum Flow',

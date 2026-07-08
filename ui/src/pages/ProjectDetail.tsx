@@ -11,6 +11,7 @@ import type {
   Project,
 } from '../api/types'
 import { useI18n } from '../i18n'
+import { templates } from '../templates'
 import { downloadJSON } from '../utils/download'
 import { emptyFlowContent } from '../utils/flowFile'
 
@@ -51,6 +52,15 @@ export default function ProjectDetail() {
   async function onDeleteConnection(id: string) {
     await api.deleteConnection(id)
     setConnections((prev) => (prev ?? []).filter((c) => c.id !== id))
+  }
+
+  async function onUseTemplate(templateId: string) {
+    if (!projectId) return
+    const template = templates.find((tpl) => tpl.id === templateId)
+    if (!template) return
+    const result = await api.importProject(projectId, template.bundle)
+    setFlows((prev) => [...(prev ?? []), ...result.flows])
+    setConnections((prev) => [...(prev ?? []), ...result.connectionsCreated])
   }
 
   async function onDeleteProfile(id: string) {
@@ -166,6 +176,22 @@ export default function ProjectDetail() {
           {t('flows.create.submit')}
         </button>
       </form>
+
+      <h2 className="mb-2 text-sm font-semibold text-(--color-text-muted)">{t('templates.title')}</h2>
+      <ul className="mb-6 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {templates.map((tpl) => (
+          <li key={tpl.id} className="flex flex-col rounded border border-(--color-border) p-3">
+            <div className="text-sm font-medium">{tpl.name}</div>
+            <div className="mt-1 mb-2 flex-1 text-xs text-(--color-text-muted)">{tpl.description}</div>
+            <button
+              onClick={() => void onUseTemplate(tpl.id)}
+              className="self-start rounded border border-(--color-border) px-2 py-1 text-xs"
+            >
+              {t('templates.use')}
+            </button>
+          </li>
+        ))}
+      </ul>
 
       <h2 className="mb-2 text-sm font-semibold text-(--color-text-muted)">{t('connections.title')}</h2>
       {connections === null ? (
