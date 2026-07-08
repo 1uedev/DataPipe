@@ -123,6 +123,14 @@ func Connect(ctx context.Context) (Conn, error) {
 	}
 }
 
+// DSNFor builds the driver name, resolved dialect, and DSN string for a SQL
+// connection's declared type — exported so callers with a bounded one-shot
+// need (e.g. controlplane/internal/conntest's CON-140 "test connection")
+// can dial without going through the full Connect retry loop.
+func DSNFor(connType Dialect, cfg Config, cred Credential) (driver string, dialect Dialect, dsn string, err error) {
+	return dsnFor(connType, cfg, cred)
+}
+
 func dsnFor(connType Dialect, cfg Config, cred Credential) (driver string, dialect Dialect, dsn string, err error) {
 	switch connType {
 	case "", DialectPostgres:
