@@ -167,7 +167,7 @@ func (n *node) convert(value any) (any, error) {
 		if !ok {
 			return nil, fmt.Errorf("xml2json: payload must be a string")
 		}
-		return xmlToJSON(s)
+		return XMLToJSON(s)
 	case "csv2json":
 		s, ok := value.(string)
 		if !ok {

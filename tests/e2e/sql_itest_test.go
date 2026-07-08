@@ -49,19 +49,19 @@ func startPostgres(t *testing.T) (resolver fakeResolver, cleanup func()) {
 		cleanup()
 		t.Fatal(err)
 	}
-	resolver = fakeResolver{config: connCfg, credential: cred}
+	resolver = fakeResolver{connType: "postgres", config: connCfg, credential: cred}
 
 	// Wait for the server to actually accept connections rather than a
 	// fixed sleep: sqlshared.Connect already retries with backoff, so just
 	// give it a generous ceiling here.
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	db, err := sqlshared.Connect(flow.WithConnection(ctx, resolver, "conn-1"))
+	conn, err := sqlshared.Connect(flow.WithConnection(ctx, resolver, "conn-1"))
 	if err != nil {
 		cleanup()
 		t.Fatalf("postgres did not become ready in time: %v", err)
 	}
-	_ = db.Close()
+	_ = conn.DB.Close()
 
 	return resolver, cleanup
 }
@@ -77,12 +77,12 @@ func TestCON500_SNK190_SQLSourceAndSinkAgainstRealPostgres(t *testing.T) {
 	defer cancel()
 	rctx := flow.WithConnection(ctx, resolver, "conn-1")
 
-	db, err := sqlshared.Connect(rctx)
+	conn, err := sqlshared.Connect(rctx)
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
-	defer func() { _ = db.Close() }()
-	if _, err := db.ExecContext(ctx, `CREATE TABLE readings (id SERIAL PRIMARY KEY, sensor_id TEXT NOT NULL, celsius DOUBLE PRECISION NOT NULL)`); err != nil {
+	defer func() { _ = conn.DB.Close() }()
+	if _, err := conn.DB.ExecContext(ctx, `CREATE TABLE readings (id SERIAL PRIMARY KEY, sensor_id TEXT NOT NULL, celsius DOUBLE PRECISION NOT NULL)`); err != nil {
 		t.Fatalf("creating table: %v", err)
 	}
 
@@ -145,7 +145,7 @@ func TestCON500_SNK190_SQLSourceAndSinkAgainstRealPostgres(t *testing.T) {
 	}
 
 	var count int
-	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM readings").Scan(&count); err != nil {
+	if err := conn.DB.QueryRowContext(ctx, "SELECT count(*) FROM readings").Scan(&count); err != nil {
 		t.Fatalf("count query: %v", err)
 	}
 	if count != 3 {

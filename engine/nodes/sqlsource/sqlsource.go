@@ -1,5 +1,5 @@
-// Package sqlsource implements the "sql-source" node (CON-500 SQL,
-// PostgreSQL for this increment): one-shot or periodic parameterized
+// Package sqlsource implements the "sql-source" node (CON-500 SQL:
+// PostgreSQL, MySQL, MSSQL, SQLite): one-shot or periodic parameterized
 // queries, with an optional incremental watermark column, one datagram per
 // row. The watermark lives in node-instance memory (resets on redeploy) —
 // true cross-restart durability needs ENG-120's context store wired into
@@ -8,7 +8,6 @@ package sqlsource
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -78,13 +77,13 @@ func New(raw json.RawMessage) (any, error) {
 }
 
 func (n *node) Run(ctx context.Context, emit func(port string, d datagram.Datagram) error) error {
-	db, err := sqlshared.Connect(ctx)
+	conn, err := sqlshared.Connect(ctx)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = db.Close() }()
+	defer func() { _ = conn.DB.Close() }()
 
-	if err := n.runQuery(ctx, db, emit); err != nil {
+	if err := n.runQuery(ctx, conn, emit); err != nil {
 		return err
 	}
 	if n.cfg.Mode == "once" {
@@ -98,14 +97,14 @@ func (n *node) Run(ctx context.Context, emit func(port string, d datagram.Datagr
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-			if err := n.runQuery(ctx, db, emit); err != nil {
+			if err := n.runQuery(ctx, conn, emit); err != nil {
 				return err
 			}
 		}
 	}
 }
 
-func (n *node) runQuery(ctx context.Context, db *sql.DB, emit func(string, datagram.Datagram) error) error {
+func (n *node) runQuery(ctx context.Context, conn sqlshared.Conn, emit func(string, datagram.Datagram) error) error {
 	query := n.cfg.Query
 	var args []any
 	if n.cfg.IncrementalColumn != "" {
@@ -117,14 +116,14 @@ func (n *node) runQuery(ctx context.Context, db *sql.DB, emit func(string, datag
 		// that may not even be comparable to the column's type (e.g. a
 		// timestamp column can't be compared against integer 0).
 		if wm != nil {
-			query += fmt.Sprintf(" WHERE %s > $1 ORDER BY %s ASC", n.cfg.IncrementalColumn, n.cfg.IncrementalColumn)
+			query += fmt.Sprintf(" WHERE %s > %s ORDER BY %s ASC", n.cfg.IncrementalColumn, conn.Dialect.Placeholder(1), n.cfg.IncrementalColumn)
 			args = append(args, wm)
 		} else {
 			query += fmt.Sprintf(" ORDER BY %s ASC", n.cfg.IncrementalColumn)
 		}
 	}
 
-	rows, err := db.QueryContext(ctx, query, args...)
+	rows, err := conn.DB.QueryContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("sql-source: query: %w", err)
 	}

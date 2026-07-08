@@ -1,10 +1,10 @@
 // Package filewatch implements the "file-watch" node (CON-400 File
-// Watcher + CON-410 File Readers, CSV/TSV and JSON/JSON-Lines slices):
-// watches a directory for new/modified files matching a pattern, waits for
-// each file to stop growing (a "stability check"), parses it into records,
-// emits one datagram per record (or one batch datagram), and applies a
-// post-action (keep / mark / move / rename / delete). Excel, XML, Parquet,
-// and fixed-width readers are P2/deferred — see TODO.md.
+// Watcher + CON-410 File Readers: CSV/TSV, JSON/JSON-Lines, XML, Excel
+// (.xlsx)): watches a directory for new/modified files matching a pattern,
+// waits for each file to stop growing (a "stability check"), parses it into
+// records, emits one datagram per record (or one batch datagram), and
+// applies a post-action (keep / mark / move / rename / delete). Parquet and
+// fixed-width readers are P2/deferred — see TODO.md.
 package filewatch
 
 import (
@@ -21,6 +21,7 @@ import (
 
 	"github.com/1uedev/DataPipe/engine/datagram"
 	"github.com/1uedev/DataPipe/engine/flow"
+	"github.com/1uedev/DataPipe/engine/nodes/recordformat"
 )
 
 // DefaultStabilityMs is how long a file's size must stay unchanged before
@@ -33,7 +34,7 @@ const configSchema = `{
 		"directory": { "type": "string", "description": "Directory to watch." },
 		"pattern": { "type": "string", "description": "Glob pattern matched against the file name, e.g. \"*.csv\"." },
 		"recursive": { "type": "boolean", "description": "Also watch subdirectories." },
-		"format": { "type": "string", "enum": ["csv", "tsv", "json", "jsonl", "raw"] },
+		"format": { "type": "string", "enum": ["csv", "tsv", "json", "jsonl", "xml", "xlsx", "raw"] },
 		"csv": {
 			"type": "object",
 			"properties": {
@@ -42,7 +43,15 @@ const configSchema = `{
 				"encoding": { "type": "string", "enum": ["utf-8", "latin1"] }
 			}
 		},
+		"excel": {
+			"type": "object",
+			"properties": {
+				"sheetName": { "type": "string", "description": "Worksheet to read, format \"xlsx\" (default: the workbook's first sheet)." },
+				"hasHeader": { "type": "boolean" }
+			}
+		},
 		"jsonRoot": { "type": "string", "description": "\".\"-path to an array within the JSON document to stream element-by-element; empty streams the whole document as one record." },
+		"xmlRecordElement": { "type": "string", "description": "Child element name to collect as records, format \"xml\" (e.g. \"reading\" for <readings><reading>...</reading>...</readings>); empty streams the whole document as one record." },
 		"emit": { "type": "string", "enum": ["perRecord", "batch"], "description": "One datagram per record (default) or a single datagram carrying every record." },
 		"stabilityMs": { "type": "integer", "minimum": 0, "description": "How long the file size must stay unchanged before reading it (default 500)." },
 		"malformedRowPolicy": { "type": "string", "enum": ["fail", "skip"], "description": "What to do with a row/line that fails to parse (default fail)." },
@@ -64,7 +73,7 @@ func init() {
 		Outputs:      []string{"out"},
 		DisplayName:  "File Watch",
 		Category:     flow.CategorySource,
-		Description:  "Watches a directory for files matching a pattern and emits parsed records (CON-400/410: CSV/TSV, JSON, JSON Lines).",
+		Description:  "Watches a directory for files matching a pattern and emits parsed records (CON-400/410: CSV/TSV, JSON, JSON Lines, XML, Excel).",
 		ConfigSchema: json.RawMessage(configSchema),
 	}, New)
 }
@@ -78,16 +87,18 @@ type PostAction struct {
 
 // Config is the "file-watch" node's "config" object.
 type Config struct {
-	Directory          string     `json:"directory"`
-	Pattern            string     `json:"pattern"`
-	Recursive          bool       `json:"recursive,omitempty"`
-	Format             string     `json:"format"`
-	CSV                CSVConfig  `json:"csv,omitempty"`
-	JSONRoot           string     `json:"jsonRoot,omitempty"`
-	Emit               string     `json:"emit,omitempty"` // "perRecord" (default) | "batch"
-	StabilityMs        int        `json:"stabilityMs,omitempty"`
-	MalformedRowPolicy string     `json:"malformedRowPolicy,omitempty"`
-	PostAction         PostAction `json:"postAction,omitempty"`
+	Directory          string                   `json:"directory"`
+	Pattern            string                   `json:"pattern"`
+	Recursive          bool                     `json:"recursive,omitempty"`
+	Format             string                   `json:"format"`
+	CSV                recordformat.CSVConfig   `json:"csv,omitempty"`
+	Excel              recordformat.ExcelConfig `json:"excel,omitempty"`
+	JSONRoot           string                   `json:"jsonRoot,omitempty"`
+	XMLRecordElement   string                   `json:"xmlRecordElement,omitempty"`
+	Emit               string                   `json:"emit,omitempty"` // "perRecord" (default) | "batch"
+	StabilityMs        int                      `json:"stabilityMs,omitempty"`
+	MalformedRowPolicy string                   `json:"malformedRowPolicy,omitempty"`
+	PostAction         PostAction               `json:"postAction,omitempty"`
 }
 
 type node struct{ cfg Config }
@@ -105,7 +116,7 @@ func New(raw json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("file-watch: pattern is required")
 	}
 	switch cfg.Format {
-	case "csv", "tsv", "json", "jsonl", "raw":
+	case "csv", "tsv", "json", "jsonl", "xml", "xlsx", "raw":
 	default:
 		return nil, fmt.Errorf("file-watch: unknown format %q", cfg.Format)
 	}
@@ -195,7 +206,13 @@ func (n *node) processFile(ctx context.Context, path string, emit func(string, d
 		return
 	}
 
-	records, err := parseRecords(n.cfg.Format, raw, n.cfg.CSV, n.cfg.JSONRoot, n.cfg.MalformedRowPolicy)
+	records, err := recordformat.ParseRecords(n.cfg.Format, raw, recordformat.Options{
+		CSV:                n.cfg.CSV,
+		Excel:              n.cfg.Excel,
+		JSONRoot:           n.cfg.JSONRoot,
+		XMLRecordElement:   n.cfg.XMLRecordElement,
+		MalformedRowPolicy: n.cfg.MalformedRowPolicy,
+	})
 	if err != nil {
 		slog.Warn("file-watch: parsing file failed", "path", path, "error", err)
 		return

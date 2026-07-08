@@ -75,7 +75,7 @@ func xmlEscape(s string) string {
 // become an array), following the same simplified convention as
 // jsonToXML — the inverse is only exact for documents actually produced by
 // jsonToXML or shaped like it.
-func xmlToJSON(raw string) (any, error) {
+func XMLToJSON(raw string) (any, error) {
 	dec := xml.NewDecoder(strings.NewReader(raw))
 	for {
 		tok, err := dec.Token()

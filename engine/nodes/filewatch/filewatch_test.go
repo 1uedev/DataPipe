@@ -11,6 +11,7 @@ import (
 
 	"github.com/1uedev/DataPipe/engine/datagram"
 	"github.com/1uedev/DataPipe/engine/flow"
+	"github.com/1uedev/DataPipe/engine/nodes/recordformat"
 )
 
 func TestCON400_NewRequiresDirectoryPatternAndFormat(t *testing.T) {
@@ -20,7 +21,7 @@ func TestCON400_NewRequiresDirectoryPatternAndFormat(t *testing.T) {
 	if _, err := New(json.RawMessage(`{"directory":"/tmp","format":"csv"}`)); err == nil {
 		t.Fatal("expected an error when pattern is missing")
 	}
-	if _, err := New(json.RawMessage(`{"directory":"/tmp","pattern":"*.csv","format":"xml"}`)); err == nil {
+	if _, err := New(json.RawMessage(`{"directory":"/tmp","pattern":"*.csv","format":"parquet"}`)); err == nil {
 		t.Fatal("expected an error for an unsupported format")
 	}
 }
@@ -58,7 +59,7 @@ func waitForRecords(t *testing.T, c *collector, min int) []any {
 
 func TestCON400_410_WatchesDirectoryAndParsesCSVPerRecord(t *testing.T) {
 	dir := t.TempDir()
-	raw, err := json.Marshal(Config{Directory: dir, Pattern: "*.csv", Format: "csv", CSV: CSVConfig{HasHeader: true}, StabilityMs: 50})
+	raw, err := json.Marshal(Config{Directory: dir, Pattern: "*.csv", Format: "csv", CSV: recordformat.CSVConfig{HasHeader: true}, StabilityMs: 50})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +205,7 @@ func TestCON400_PostActionDelete(t *testing.T) {
 
 func TestCON400_BatchEmitProducesOneDatagramWithAllRecords(t *testing.T) {
 	dir := t.TempDir()
-	raw, err := json.Marshal(Config{Directory: dir, Pattern: "*.csv", Format: "csv", CSV: CSVConfig{HasHeader: true}, Emit: "batch", StabilityMs: 50})
+	raw, err := json.Marshal(Config{Directory: dir, Pattern: "*.csv", Format: "csv", CSV: recordformat.CSVConfig{HasHeader: true}, Emit: "batch", StabilityMs: 50})
 	if err != nil {
 		t.Fatal(err)
 	}

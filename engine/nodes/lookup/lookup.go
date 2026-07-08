@@ -1,13 +1,13 @@
 // Package lookup implements the "lookup" node (PROC-400): enrich a
-// datagram from a static table, SQL (PostgreSQL, reusing engine/nodes/
-// sqlshared), or HTTP source, with an in-memory TTL+max-entries cache and a
-// configurable cache-miss policy. NoSQL is not implemented — no NoSQL
-// connector exists in this project yet (see TODO.md).
+// datagram from a static table, SQL (reusing engine/nodes/sqlshared, any
+// dialect), or HTTP source, with an in-memory TTL+max-entries cache and a
+// configurable cache-miss policy. Mongo/Redis lookups can be built from the
+// mongo-source/redis-source nodes directly for now; a dedicated NoSQL lookup
+// mode is not implemented (see TODO.md).
 package lookup
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -107,7 +107,7 @@ type node struct {
 	cfg       Config
 	keyProg   *expr.Program
 	rt        *expr.Runtime
-	db        *sql.DB
+	db        sqlshared.Conn
 	dbOnce    sync.Once
 	dbErr     error
 	client    *http.Client
@@ -244,7 +244,7 @@ func (n *node) fetchSQL(ctx context.Context, key string) (any, bool, error) {
 	if n.dbErr != nil {
 		return nil, false, n.dbErr
 	}
-	rows, err := n.db.QueryContext(ctx, n.cfg.SQL.Query, key)
+	rows, err := n.db.DB.QueryContext(ctx, n.cfg.SQL.Query, key)
 	if err != nil {
 		return nil, false, fmt.Errorf("sql: %w", err)
 	}

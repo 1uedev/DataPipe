@@ -54,12 +54,13 @@ allow_anonymous true
 // the id asked for, since these tests only ever deploy one connection at a
 // time.
 type fakeResolver struct {
+	connType   string
 	config     json.RawMessage
 	credential json.RawMessage
 }
 
 func (f fakeResolver) ResolveConnection(context.Context, string) (flow.ConnectionInfo, error) {
-	return flow.ConnectionInfo{Config: f.config, CredentialJSON: f.credential}, nil
+	return flow.ConnectionInfo{Type: f.connType, Config: f.config, CredentialJSON: f.credential}, nil
 }
 
 func TestCON200_SNK110_MQTTPublishSubscribeRoundTripAgainstRealBroker(t *testing.T) {

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
+
+	"github.com/1uedev/DataPipe/engine/nodes/sqlshared"
 )
 
 func TestSNK190_NewValidatesRequiredFieldsPerMode(t *testing.T) {
@@ -55,11 +57,34 @@ func TestSNK190_BatchRowsHandlesArrayMapAndScalar(t *testing.T) {
 	}
 }
 
-func TestSNK190_UpdateSetClauseFormatsAllColumns(t *testing.T) {
-	got := updateSetClause([]string{"a", "b"})
-	want := "a = EXCLUDED.a, b = EXCLUDED.b"
+func TestSNK190_UpsertClauseFormatsPerDialect(t *testing.T) {
+	got := upsertClause(sqlshared.DialectPostgres, []string{"id"}, []string{"a", "b"})
+	want := "ON CONFLICT (id) DO UPDATE SET a = EXCLUDED.a, b = EXCLUDED.b"
 	if got != want {
-		t.Errorf("updateSetClause = %q, want %q", got, want)
+		t.Errorf("upsertClause(postgres) = %q, want %q", got, want)
+	}
+
+	got = upsertClause(sqlshared.DialectMySQL, []string{"id"}, []string{"a", "b"})
+	want = "ON DUPLICATE KEY UPDATE a = VALUES(a), b = VALUES(b)"
+	if got != want {
+		t.Errorf("upsertClause(mysql) = %q, want %q", got, want)
+	}
+}
+
+func TestSNK190_DialectPlaceholders(t *testing.T) {
+	cases := []struct {
+		dialect sqlshared.Dialect
+		want    string
+	}{
+		{sqlshared.DialectPostgres, "$2"},
+		{sqlshared.DialectMySQL, "?"},
+		{sqlshared.DialectSQLite, "?"},
+		{sqlshared.DialectMSSQL, "@p2"},
+	}
+	for _, c := range cases {
+		if got := c.dialect.Placeholder(2); got != c.want {
+			t.Errorf("%s.Placeholder(2) = %q, want %q", c.dialect, got, c.want)
+		}
 	}
 }
 
