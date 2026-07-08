@@ -1,5 +1,7 @@
 import { request } from './client'
 import type {
+  Alert,
+  AlertRule,
   AsyncAccepted,
   AuditEntry,
   Connection,
@@ -127,6 +129,24 @@ export function listCredentials(projectId: string) {
 
 export function listRuntimes() {
   return request<RuntimeInfo[]>('/runtimes')
+}
+
+// --- OBS-140: alerting hooks ---
+
+export function listAlertRules() {
+  return request<AlertRule[]>('/alert-rules')
+}
+
+export function createAlertRule(input: { name: string; metric: 'connectionDown' | 'edgeOffline'; targetRuntimeId?: string; webhookUrl?: string }) {
+  return request<AlertRule>('/alert-rules', { method: 'POST', body: input })
+}
+
+export function deleteAlertRule(ruleId: string) {
+  return request<void>(`/alert-rules/${ruleId}`, { method: 'DELETE' })
+}
+
+export function listAlerts() {
+  return request<Alert[]>('/alerts')
 }
 
 // --- Increment 9: fleet management (EDGE-120/UI-220) ---

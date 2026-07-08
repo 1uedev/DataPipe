@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import * as api from '../api/resources'
-import type { Connection, Flow, Project, RuntimeInfo } from '../api/types'
+import type { Alert, AlertRule, Connection, Flow, Project, RuntimeInfo } from '../api/types'
+import { useAuthStore } from '../store/auth'
 import { useI18n } from '../i18n'
 
 // OBS-110: built-in monitoring UI — runtime health, flow health (deployed
@@ -11,9 +12,17 @@ import { useI18n } from '../i18n'
 // cross-project flow/connection health OBS-110 also calls for.
 export default function Monitoring() {
   const { t } = useI18n()
+  const isSystemAdmin = useAuthStore((s) => s.user?.systemRole === 'system_admin')
   const [runtimes, setRuntimes] = useState<RuntimeInfo[] | null>(null)
   const [flowRows, setFlowRows] = useState<FlowHealthRow[] | null>(null)
   const [connRows, setConnRows] = useState<ConnRow[] | null>(null)
+  const [alerts, setAlerts] = useState<Alert[] | null>(null)
+  const [rules, setRules] = useState<AlertRule[] | null>(null)
+
+  function reloadAlerting() {
+    void api.listAlerts().then(setAlerts)
+    void api.listAlertRules().then(setRules)
+  }
 
   useEffect(() => {
     void api.listRuntimes().then(setRuntimes)
@@ -23,6 +32,8 @@ export default function Monitoring() {
     void loadFlowHealth().then(setFlowRows)
     void loadConnections().then(setConnRows)
   }, [])
+
+  useEffect(reloadAlerting, [])
 
   return (
     <div className="mx-auto max-w-5xl p-6">
@@ -38,10 +49,154 @@ export default function Monitoring() {
         <FlowHealthTable rows={flowRows} />
       </section>
 
-      <section>
+      <section className="mb-8">
         <h2 className="mb-2 text-sm font-semibold">{t('monitoring.connections')}</h2>
         <ConnectionStatusTable rows={connRows} />
       </section>
+
+      <section>
+        <h2 className="mb-2 text-sm font-semibold">{t('monitoring.alerting')}</h2>
+        <AlertsPanel alerts={alerts} rules={rules} runtimes={runtimes} isSystemAdmin={isSystemAdmin} onChanged={reloadAlerting} />
+      </section>
+    </div>
+  )
+}
+
+function AlertsPanel({
+  alerts,
+  rules,
+  runtimes,
+  isSystemAdmin,
+  onChanged,
+}: {
+  alerts: Alert[] | null
+  rules: AlertRule[] | null
+  runtimes: RuntimeInfo[] | null
+  isSystemAdmin: boolean
+  onChanged: () => void
+}) {
+  const { t } = useI18n()
+  const [name, setName] = useState('')
+  const [metric, setMetric] = useState<'connectionDown' | 'edgeOffline'>('edgeOffline')
+  const [targetRuntimeId, setTargetRuntimeId] = useState('')
+  const [webhookUrl, setWebhookUrl] = useState('')
+  const [creating, setCreating] = useState(false)
+
+  async function onCreate(e: FormEvent) {
+    e.preventDefault()
+    setCreating(true)
+    try {
+      await api.createAlertRule({
+        name,
+        metric,
+        targetRuntimeId: metric === 'connectionDown' ? targetRuntimeId : undefined,
+        webhookUrl: webhookUrl || undefined,
+      })
+      setName('')
+      setTargetRuntimeId('')
+      setWebhookUrl('')
+      onChanged()
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  async function onDelete(ruleId: string) {
+    await api.deleteAlertRule(ruleId)
+    onChanged()
+  }
+
+  return (
+    <div className="grid gap-6 sm:grid-cols-2">
+      <div>
+        <h3 className="mb-2 text-xs font-semibold text-(--color-text-muted)">{t('monitoring.alerting.active')}</h3>
+        {alerts === null ? (
+          <p className="text-sm text-(--color-text-muted)">{t('common.loading')}</p>
+        ) : alerts.length === 0 ? (
+          <p className="text-sm text-(--color-text-muted)">{t('monitoring.alerting.empty')}</p>
+        ) : (
+          <ul className="divide-y divide-(--color-border) text-sm">
+            {alerts.map((a) => (
+              <li key={a.id} className="py-1.5">
+                <span className={a.state === 'firing' ? 'font-medium text-red-500' : 'text-(--color-text-muted)'}>{a.ruleName}</span>
+                <span className="ml-2 text-xs text-(--color-text-muted)">{a.message}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div>
+        <h3 className="mb-2 text-xs font-semibold text-(--color-text-muted)">{t('monitoring.alerting.rules')}</h3>
+        {rules === null ? (
+          <p className="mb-2 text-sm text-(--color-text-muted)">{t('common.loading')}</p>
+        ) : rules.length === 0 ? (
+          <p className="mb-2 text-sm text-(--color-text-muted)">{t('monitoring.alerting.rules.empty')}</p>
+        ) : (
+          <ul className="mb-3 divide-y divide-(--color-border) text-sm">
+            {rules.map((r) => (
+              <li key={r.id} className="flex items-center justify-between py-1.5">
+                <span>
+                  {r.name} <span className="text-xs text-(--color-text-muted)">({r.metric})</span>
+                </span>
+                {isSystemAdmin && (
+                  <button onClick={() => void onDelete(r.id)} className="text-xs text-(--color-text-muted)">
+                    {t('fleet.groups.delete')}
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {isSystemAdmin && (
+          <form onSubmit={onCreate} className="flex flex-col gap-2">
+            <input
+              className="rounded border border-(--color-border) bg-transparent px-2 py-1 text-sm"
+              placeholder={t('monitoring.alerting.rule.name')}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+            />
+            <select
+              value={metric}
+              onChange={(e) => setMetric(e.target.value as 'connectionDown' | 'edgeOffline')}
+              className="rounded border border-(--color-border) bg-transparent px-2 py-1 text-sm"
+            >
+              <option value="edgeOffline">{t('monitoring.alerting.metric.edgeOffline')}</option>
+              <option value="connectionDown">{t('monitoring.alerting.metric.connectionDown')}</option>
+            </select>
+            {metric === 'connectionDown' && (
+              <select
+                value={targetRuntimeId}
+                onChange={(e) => setTargetRuntimeId(e.target.value)}
+                className="rounded border border-(--color-border) bg-transparent px-2 py-1 text-sm"
+                required
+              >
+                <option value="">{t('monitoring.alerting.rule.targetRuntime')}</option>
+                {(runtimes ?? []).map((rt) => (
+                  <option key={rt.runtimeId} value={rt.runtimeId}>
+                    {rt.displayName ?? rt.runtimeId}
+                  </option>
+                ))}
+              </select>
+            )}
+            <input
+              className="rounded border border-(--color-border) bg-transparent px-2 py-1 text-sm"
+              placeholder={t('monitoring.alerting.rule.webhookUrl')}
+              value={webhookUrl}
+              onChange={(e) => setWebhookUrl(e.target.value)}
+            />
+            <button
+              type="submit"
+              disabled={creating}
+              className="self-start rounded bg-(--color-accent) px-3 py-1 text-sm font-medium text-white disabled:opacity-50"
+            >
+              {t('monitoring.alerting.rule.create')}
+            </button>
+          </form>
+        )}
+      </div>
     </div>
   )
 }

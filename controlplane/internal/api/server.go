@@ -153,6 +153,11 @@ func (h *Handlers) Routes() http.Handler {
 	protected.HandleFunc("GET /audit-log", h.listAuditLog)
 	protected.HandleFunc("GET /node-types", h.listNodeTypes)
 
+	protected.HandleFunc("GET /alert-rules", h.listAlertRules)
+	protected.HandleFunc("POST /alert-rules", h.createAlertRule)
+	protected.HandleFunc("DELETE /alert-rules/{ruleId}", h.deleteAlertRule)
+	protected.HandleFunc("GET /alerts", h.listAlerts)
+
 	protected.HandleFunc("POST /flows/{flowId}/nodes/{nodeId}/execute", h.executeNode)
 	protected.HandleFunc("POST /flows/{flowId}/nodes/{nodeId}/preview", h.previewNode)
 	protected.HandleFunc("GET /flows/{flowId}/debug/pins", h.listPins)

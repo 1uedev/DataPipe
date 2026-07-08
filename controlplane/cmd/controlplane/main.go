@@ -21,6 +21,7 @@ import (
 	runtimev1 "github.com/1uedev/DataPipe/proto/gen/go/datapipe/runtime/v1"
 	"google.golang.org/grpc"
 
+	"github.com/1uedev/DataPipe/controlplane/internal/alerting"
 	"github.com/1uedev/DataPipe/controlplane/internal/api"
 	"github.com/1uedev/DataPipe/controlplane/internal/audit"
 	"github.com/1uedev/DataPipe/controlplane/internal/auth"
@@ -120,6 +121,11 @@ func main() {
 	reg.SetExecutionStore(executionStoreAdapter{apiStore})
 	reg.SetDeployedFlowsLister(deployedFlowsListerAdapter{apiStore})
 	reg.SetDeviceStore(deviceStoreAdapter{apiStore})
+
+	// OBS-140: alerting hooks — periodically evaluate rules against live
+	// runtime state and fire/resolve alerts (webhook delivery included).
+	alertEvaluator := alerting.NewEvaluator(alertStoreAdapter{apiStore}, alertRuntimeListerAdapter{reg})
+	go alertEvaluator.Run(ctx)
 
 	if err := bootstrapAdmin(ctx, authStore); err != nil {
 		slog.Error("failed to bootstrap admin user", "error", err)
@@ -319,6 +325,49 @@ func (a deployedFlowsListerAdapter) ListDeployedFlows(ctx context.Context) ([]re
 	out := make([]registry.DeployedFlowInfo, len(flows))
 	for i, f := range flows {
 		out[i] = registry.DeployedFlowInfo{FlowID: f.FlowID, Version: f.Version, ContentJSON: f.ContentJSON, DefaultErrorFlow: f.DefaultErrorFlow, TargetGroup: f.TargetGroup}
+	}
+	return out, nil
+}
+
+// alertStoreAdapter adapts api.Store to alerting.Store — the same
+// no-lower-package-depends-on-a-higher-one pattern as the adapters above.
+type alertStoreAdapter struct{ store *api.Store }
+
+func (a alertStoreAdapter) ListEnabledRules(ctx context.Context) ([]alerting.Rule, error) {
+	rules, err := a.store.ListAlertRules(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]alerting.Rule, 0, len(rules))
+	for _, r := range rules {
+		if !r.Enabled {
+			continue
+		}
+		out = append(out, alerting.Rule{ID: r.ID, Name: r.Name, Metric: alerting.Metric(r.Metric), TargetRuntimeID: r.TargetRuntimeID, WebhookURL: r.WebhookURL})
+	}
+	return out, nil
+}
+
+func (a alertStoreAdapter) OpenAlert(ctx context.Context, ruleID string) (string, bool, error) {
+	return a.store.OpenAlert(ctx, ruleID)
+}
+
+func (a alertStoreAdapter) CreateAlert(ctx context.Context, ruleID, message string) error {
+	return a.store.CreateAlert(ctx, ruleID, message)
+}
+
+func (a alertStoreAdapter) ResolveAlert(ctx context.Context, alertID string) error {
+	return a.store.ResolveAlert(ctx, alertID)
+}
+
+// alertRuntimeListerAdapter adapts registry.Service to alerting.RuntimeLister.
+type alertRuntimeListerAdapter struct{ reg *registry.Service }
+
+func (a alertRuntimeListerAdapter) ListRuntimeStatuses(ctx context.Context) ([]alerting.RuntimeStatus, error) {
+	snaps := a.reg.ListRuntimes(ctx)
+	out := make([]alerting.RuntimeStatus, len(snaps))
+	for i, s := range snaps {
+		out[i] = alerting.RuntimeStatus{RuntimeID: s.RuntimeID, Online: s.Online}
 	}
 	return out, nil
 }

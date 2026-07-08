@@ -633,6 +633,69 @@ paths:
         "204": { description: Deleted }
         "403": { $ref: "#/components/responses/Forbidden" }
 
+  /alert-rules:
+    get:
+      summary: List OBS-140 alert rules (any authenticated user)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AlertRule" }
+    post:
+      summary: >
+        Create an alert rule (System Admin). "edgeOffline" fires when any
+        runtime is offline; "connectionDown" fires when targetRuntimeId
+        specifically is offline. Evaluated against the registry's live
+        Online tracking every 15s (ARC-210 outbound-only architecture means
+        this can only use data the control plane already has centrally —
+        not a fresh per-runtime metrics pull).
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, metric]
+              properties:
+                name: { type: string }
+                metric: { type: string, enum: [connectionDown, edgeOffline] }
+                targetRuntimeId: { type: string, description: "Required when metric is connectionDown" }
+                webhookUrl: { type: string, description: "Optional HTTP POST notification target" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AlertRule" }
+        "400": { description: Invalid metric or missing targetRuntimeId }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /alert-rules/{ruleId}:
+    parameters:
+      - name: ruleId
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      summary: Delete an alert rule (System Admin)
+      responses:
+        "204": { description: Deleted }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /alerts:
+    get:
+      summary: List fired alerts (firing and resolved), newest first (any authenticated user)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Alert" }
+
   /audit-log:
     get:
       summary: Read the tamper-evident audit log (System/Project Admin)
@@ -1105,6 +1168,28 @@ components:
         createdAt: { type: string, format: date-time }
         usedByRuntimeId: { type: string, nullable: true }
         revoked: { type: boolean }
+
+    AlertRule:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        metric: { type: string, enum: [connectionDown, edgeOffline] }
+        targetRuntimeId: { type: string, nullable: true }
+        webhookUrl: { type: string, nullable: true }
+        enabled: { type: boolean }
+        createdAt: { type: string, format: date-time }
+
+    Alert:
+      type: object
+      properties:
+        id: { type: string }
+        ruleId: { type: string }
+        ruleName: { type: string }
+        state: { type: string, enum: [firing, resolved] }
+        message: { type: string }
+        firedAt: { type: string, format: date-time }
+        resolvedAt: { type: string, format: date-time, nullable: true }
 
     AuditEntry:
       type: object

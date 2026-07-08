@@ -78,6 +78,26 @@ export interface RuntimeInfo {
   enrolled: boolean
 }
 
+export interface AlertRule {
+  id: string
+  name: string
+  metric: 'connectionDown' | 'edgeOffline'
+  targetRuntimeId?: string
+  webhookUrl?: string
+  enabled: boolean
+  createdAt: string
+}
+
+export interface Alert {
+  id: string
+  ruleId: string
+  ruleName: string
+  state: 'firing' | 'resolved'
+  message: string
+  firedAt: string
+  resolvedAt?: string
+}
+
 // --- Increment 9: fleet management (EDGE-120) ---
 
 export interface RuntimeGroup {
