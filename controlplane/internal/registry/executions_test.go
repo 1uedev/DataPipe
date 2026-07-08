@@ -48,7 +48,7 @@ func (f *fakeExecutionStore) snapshot() (events []ExecutionEvent, deadLetters []
 	return append([]ExecutionEvent(nil), f.events...), append([]DeadLetterEvent(nil), f.deadLetters...), f.crashedRuntimeID, f.crashedCalls
 }
 
-func registerAndOpenEventChannel(t *testing.T, client runtimev1.RuntimeRegistryServiceClient, runtimeID string) (runtimev1.RuntimeRegistryService_EventChannelClient, string) {
+func registerAndOpenEventChannel(t *testing.T, client runtimev1.RuntimeRegistryServiceClient, svc *Service, runtimeID string) (runtimev1.RuntimeRegistryService_EventChannelClient, string) {
 	t.Helper()
 	ctx := context.Background()
 	resp, err := client.Register(ctx, &runtimev1.RegisterRequest{RuntimeId: runtimeID, Version: "0.0.1"})
@@ -62,6 +62,19 @@ func registerAndOpenEventChannel(t *testing.T, client runtimev1.RuntimeRegistryS
 	if err := stream.Send(&runtimev1.EventChannelRequest{RuntimeId: runtimeID, SessionToken: resp.GetSessionToken()}); err != nil {
 		t.Fatalf("hello: %v", err)
 	}
+	// The client's Send returning only means the hello was handed to the
+	// transport, not that the server's EventChannel RPC goroutine has
+	// actually processed it and registered rt.eventCh yet — without this
+	// wait, a caller proceeding straight to RunExecution/CancelExecution/
+	// ReinjectDeadLetter races the server's own registration and
+	// intermittently (near-certainly under -race's slower scheduling)
+	// sees "no runtime currently connected".
+	waitFor(t, func() bool {
+		svc.mu.Lock()
+		defer svc.mu.Unlock()
+		rt, ok := svc.runtimes[runtimeID]
+		return ok && rt.eventCh != nil
+	}, 2*time.Second)
 	return stream, resp.GetSessionToken()
 }
 
@@ -71,7 +84,7 @@ func TestENG130_EventChannelPersistsExecutionEventViaStore(t *testing.T) {
 	store := &fakeExecutionStore{}
 	svc.SetExecutionStore(store)
 
-	stream, _ := registerAndOpenEventChannel(t, client, "rt-1")
+	stream, _ := registerAndOpenEventChannel(t, client, svc, "rt-1")
 	if err := stream.Send(&runtimev1.EventChannelRequest{
 		RuntimeId: "rt-1",
 		Payload: &runtimev1.EventChannelRequest_ExecutionEvent{ExecutionEvent: &runtimev1.ExecutionEvent{
@@ -97,7 +110,7 @@ func TestERR130_EventChannelPersistsDeadLetterViaStore(t *testing.T) {
 	store := &fakeExecutionStore{}
 	svc.SetExecutionStore(store)
 
-	stream, _ := registerAndOpenEventChannel(t, client, "rt-1")
+	stream, _ := registerAndOpenEventChannel(t, client, svc, "rt-1")
 	if err := stream.Send(&runtimev1.EventChannelRequest{
 		RuntimeId: "rt-1",
 		Payload: &runtimev1.EventChannelRequest_DeadLetterEvent{DeadLetterEvent: &runtimev1.DeadLetterEvent{
@@ -123,7 +136,7 @@ func TestERR150_EventChannelDisconnectMarksRuntimeExecutionsCrashed(t *testing.T
 	store := &fakeExecutionStore{}
 	svc.SetExecutionStore(store)
 
-	stream, _ := registerAndOpenEventChannel(t, client, "rt-1")
+	stream, _ := registerAndOpenEventChannel(t, client, svc, "rt-1")
 	// Send one message so the server has attached the runtime, then close
 	// the stream to simulate a crash/disconnect.
 	if err := stream.Send(&runtimev1.EventChannelRequest{
@@ -157,7 +170,7 @@ func TestENG130_RunExecutionCancelExecutionReinjectDeadLetterBroadcast(t *testin
 	client, svc, cleanup := startTestServer(t)
 	defer cleanup()
 
-	stream, _ := registerAndOpenEventChannel(t, client, "rt-1")
+	stream, _ := registerAndOpenEventChannel(t, client, svc, "rt-1")
 
 	if err := svc.RunExecution(context.Background(), "flow-1", "start", "trig", "out", `{"payload":{"value":1}}`, ""); err != nil {
 		t.Fatalf("RunExecution: %v", err)
