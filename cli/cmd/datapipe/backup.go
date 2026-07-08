@@ -18,7 +18,7 @@ import (
 
 func runBackup(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: datapipe backup export|restore ...")
+		return fmt.Errorf("usage: datapipe backup export|restore")
 	}
 	switch args[0] {
 	case "export":
@@ -26,7 +26,7 @@ func runBackup(args []string) error {
 	case "restore":
 		return runBackupRestore(args[1:])
 	default:
-		return fmt.Errorf("usage: datapipe backup export|restore ...")
+		return fmt.Errorf("usage: datapipe backup export|restore")
 	}
 }
 

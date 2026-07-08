@@ -1,8 +1,9 @@
 package mongosource
 
-import "encoding/json"
-
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestCON520_NewValidatesConfig(t *testing.T) {
 	cases := []struct {

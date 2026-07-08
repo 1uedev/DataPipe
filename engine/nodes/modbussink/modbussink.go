@@ -85,7 +85,7 @@ func New(raw json.RawMessage) (any, error) {
 	if err := json.Unmarshal(raw, &cfg); err != nil {
 		return nil, err
 	}
-	if err := cfg.Config.Validate(); err != nil {
+	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("modbus-sink: %w", err)
 	}
 	if cfg.Area != "coil" && cfg.Area != "register" {
