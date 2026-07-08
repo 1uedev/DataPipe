@@ -25,26 +25,34 @@ import (
 // backoff on delivery failure — see storeforward.Drain).
 const storeForwardDrainIdlePoll = 500 * time.Millisecond
 
-// NodeMetrics are the per-node counters exposed for observability.
+// NodeMetrics are the per-node counters exposed for observability
+// (OBS-100).
 type NodeMetrics struct {
-	Processed atomic.Uint64
-	Errors    atomic.Uint64
-	Retries   atomic.Uint64
+	Processed  atomic.Uint64
+	Errors     atomic.Uint64
+	Retries    atomic.Uint64
+	Processing *procHistogram
+}
+
+func newNodeMetrics() *NodeMetrics {
+	return &NodeMetrics{Processing: newProcHistogram()}
 }
 
 // MetricsSnapshot is a plain-value copy of NodeMetrics safe to return by
 // value (NodeMetrics itself is not copyable: it embeds atomics).
 type MetricsSnapshot struct {
-	Processed uint64
-	Errors    uint64
-	Retries   uint64
+	Processed  uint64
+	Errors     uint64
+	Retries    uint64
+	Processing HistogramSnapshot
 }
 
 func (m *NodeMetrics) Snapshot() MetricsSnapshot {
 	return MetricsSnapshot{
-		Processed: m.Processed.Load(),
-		Errors:    m.Errors.Load(),
-		Retries:   m.Retries.Load(),
+		Processed:  m.Processed.Load(),
+		Errors:     m.Errors.Load(),
+		Retries:    m.Retries.Load(),
+		Processing: m.Processing.Snapshot(),
 	}
 }
 
@@ -251,6 +259,7 @@ func (r *nodeRunner) handle(ctx context.Context, port string, in datagram.Datagr
 		results, err := invokeWithRecover(ctx, invoke, in)
 		if err == nil {
 			r.metrics.Processed.Add(1)
+			r.metrics.Processing.Observe(uint64(time.Since(start).Microseconds()))
 			r.dispatch(ctx, results)
 			r.reportNode(in, port, attempt, start, results, nil, "")
 			return
@@ -397,6 +406,7 @@ func (r *nodeRunner) runStoreForwardDrain(ctx context.Context, invoke func(conte
 			return err // still unreachable: leave queued, Drain will retry with backoff
 		}
 		r.metrics.Processed.Add(1)
+		r.metrics.Processing.Observe(uint64(time.Since(start).Microseconds()))
 		r.dispatch(ctx, results)
 		r.reportNode(entry.Datagram, entry.Port, 1, start, results, nil, "")
 		return nil

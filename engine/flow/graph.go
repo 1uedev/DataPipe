@@ -377,6 +377,59 @@ func (g *Deployment) NodeStats(nodeID string) (NodeStats, bool) {
 	return NodeStats{Running: true, StartCount: rn.startCount, Metrics: rn.metrics.Snapshot()}, true
 }
 
+// WireStats is one wire's queue-depth/delivered/dropped snapshot
+// (OBS-100's per-node "queue depth" and throughput, at the granularity the
+// engine actually tracks it: per wire, i.e. per (fromNode,fromPort) ->
+// (toNode,toPort) edge).
+type WireStats struct {
+	FromNode string
+	FromPort string
+	ToNode   string
+	ToPort   string
+	Depth    int
+	Capacity int
+	Metrics  bus.Metrics
+}
+
+// DeploymentMetrics is everything OBS-100 needs about one running
+// deployment: every node's counters/histogram and every wire's queue
+// depth/throughput, snapshotted together under one lock so a scrape sees a
+// consistent-ish view.
+type DeploymentMetrics struct {
+	FlowID string
+	Nodes  map[string]NodeStats
+	Wires  []WireStats
+}
+
+// MetricsSnapshot returns a full OBS-100 snapshot of this deployment: every
+// currently-running node's counters and every wire's queue depth/
+// delivered/dropped counters, for a Prometheus-format exporter
+// (engine/internal/obsmetrics) to format.
+func (g *Deployment) MetricsSnapshot() DeploymentMetrics {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	nodes := make(map[string]NodeStats, len(g.nodes))
+	for id, rn := range g.nodes {
+		nodes[id] = NodeStats{Running: true, StartCount: rn.startCount, Metrics: rn.metrics.Snapshot()}
+	}
+
+	wires := make([]WireStats, 0, len(g.wires))
+	for _, w := range g.wires {
+		busWire, ok := g.inboxes[nodePort{w.To.Node, w.To.Port}]
+		if !ok {
+			continue
+		}
+		wires = append(wires, WireStats{
+			FromNode: w.From.Node, FromPort: w.From.Port,
+			ToNode: w.To.Node, ToPort: w.To.Port,
+			Depth: busWire.Depth(), Capacity: busWire.Capacity(), Metrics: busWire.Metrics(),
+		})
+	}
+
+	return DeploymentMetrics{FlowID: g.flowID, Nodes: nodes, Wires: wires}
+}
+
 // Deploy validates f and reconciles the running graph to match it,
 // restarting only affected nodes (ENG-140).
 func (g *Deployment) Deploy(ctx context.Context, f *FlowFile) error {
@@ -586,7 +639,7 @@ func (g *Deployment) startNode(ctx context.Context, n *Node, info NodeTypeInfo, 
 	nodeCtx = withDebugContext(nodeCtx, ring, limiter, g.debugSink, g.flowID, n.ID)
 	nodeCtx = WithConnection(nodeCtx, g.connResolver, n.Connection)
 	nodeCtx = WithContextStore(nodeCtx, g.ctxStore)
-	metrics := &NodeMetrics{}
+	metrics := newNodeMetrics()
 
 	// EDGE-130 store-and-forward: only meaningful for a Processor with
 	// onError:"storeForward" configured, and only if a data directory is

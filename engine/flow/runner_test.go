@@ -36,7 +36,7 @@ func (p *panickyProcessor) Process(ctx context.Context, in datagram.Datagram) ([
 
 func TestARC150_PanicInProcessorRecoveredAndNodeKeepsRunning(t *testing.T) {
 	inbox := bus.NewWire(bus.WireConfig{Capacity: 4, Overflow: bus.OverflowBlock})
-	r := &nodeRunner{id: "n1", logger: testLogger(), metrics: &NodeMetrics{}, outputs: map[string]*bus.FanOut{}}
+	r := &nodeRunner{id: "n1", logger: testLogger(), metrics: newNodeMetrics(), outputs: map[string]*bus.FanOut{}}
 	proc := &panickyProcessor{}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -76,7 +76,7 @@ func (panickySource) Run(ctx context.Context, emit func(port string, d datagram.
 }
 
 func TestARC150_PanicInSourceRecovered(t *testing.T) {
-	r := &nodeRunner{id: "n1", logger: testLogger(), metrics: &NodeMetrics{}, outputs: map[string]*bus.FanOut{}}
+	r := &nodeRunner{id: "n1", logger: testLogger(), metrics: newNodeMetrics(), outputs: map[string]*bus.FanOut{}}
 	done := make(chan struct{})
 	go func() {
 		r.runSource(context.Background(), panickySource{})
@@ -109,7 +109,7 @@ func TestERR100_RetrySucceedsWithinMaxAttempts(t *testing.T) {
 	r := &nodeRunner{
 		id:          "n1",
 		logger:      testLogger(),
-		metrics:     &NodeMetrics{},
+		metrics:     newNodeMetrics(),
 		outputs:     map[string]*bus.FanOut{"out": outFanout},
 		errorPolicy: &ErrorPolicy{OnError: "retry", Retry: &RetryPolicy{Max: 3, BackoffMs: 1, MaxBackoffMs: 5}},
 	}
@@ -137,7 +137,7 @@ func TestERR100_RetryGivesUpAfterMax(t *testing.T) {
 	r := &nodeRunner{
 		id:          "n1",
 		logger:      testLogger(),
-		metrics:     &NodeMetrics{},
+		metrics:     newNodeMetrics(),
 		outputs:     map[string]*bus.FanOut{},
 		errorPolicy: &ErrorPolicy{OnError: "retry", Retry: &RetryPolicy{Max: 2, BackoffMs: 1, MaxBackoffMs: 5}},
 	}
@@ -164,7 +164,7 @@ func TestERR100_ErrorPortRoutesOriginalAndErrorInfo(t *testing.T) {
 	r := &nodeRunner{
 		id:          "n1",
 		logger:      testLogger(),
-		metrics:     &NodeMetrics{},
+		metrics:     newNodeMetrics(),
 		outputs:     map[string]*bus.FanOut{"error": errFanout},
 		errorPolicy: &ErrorPolicy{OnError: "errorPort"},
 	}
@@ -202,7 +202,7 @@ func TestERR100_DiscardDropsSilentlyWithoutOutput(t *testing.T) {
 	r := &nodeRunner{
 		id:          "n1",
 		logger:      testLogger(),
-		metrics:     &NodeMetrics{},
+		metrics:     newNodeMetrics(),
 		outputs:     map[string]*bus.FanOut{},
 		errorPolicy: &ErrorPolicy{OnError: "discard"},
 	}
@@ -213,7 +213,7 @@ func TestERR100_DiscardDropsSilentlyWithoutOutput(t *testing.T) {
 }
 
 func TestERR100_DefaultPolicyIsFail(t *testing.T) {
-	r := &nodeRunner{id: "n1", logger: testLogger(), metrics: &NodeMetrics{}, outputs: map[string]*bus.FanOut{}}
+	r := &nodeRunner{id: "n1", logger: testLogger(), metrics: newNodeMetrics(), outputs: map[string]*bus.FanOut{}}
 	if got := r.policy(); got.OnError != "fail" {
 		t.Errorf("default policy = %q, want %q", got.OnError, "fail")
 	}

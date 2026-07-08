@@ -182,6 +182,13 @@ func (w *Wire) Depth() int {
 	return w.count
 }
 
+// Capacity returns the wire's configured bounded-queue size (OBS-100's
+// per-node "queue depth" metric needs both the current depth and the bound
+// it's measured against).
+func (w *Wire) Capacity() int {
+	return len(w.buf) // fixed at construction (NewWire); no lock needed
+}
+
 // waitLocked blocks on cond while predicate() is true, waking early and
 // returning ctx.Err() if ctx is cancelled. mu must already be held; cond
 // must be built on mu.

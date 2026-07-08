@@ -17,6 +17,7 @@ import (
 
 	"github.com/1uedev/DataPipe/engine/flow"
 	"github.com/1uedev/DataPipe/engine/internal/health"
+	"github.com/1uedev/DataPipe/engine/internal/obsmetrics"
 	"github.com/1uedev/DataPipe/engine/internal/procstats"
 	"github.com/1uedev/DataPipe/engine/internal/runtimeclient"
 	"github.com/1uedev/DataPipe/engine/webhook"
@@ -112,7 +113,19 @@ func main() {
 	deployment.SetExecutionSink(eventSink)
 	deployment.SetDeadLetterSink(eventSink)
 
-	httpServer := &http.Server{Addr: httpAddr, Handler: healthSrv.Handler()}
+	// A separate Sampler from the one the heartbeat loop uses below: each
+	// Sampler tracks CPU time since its own last call, so sharing one
+	// between two independent periodic callers (heartbeat vs. whoever
+	// scrapes /metrics, on their own schedule) would corrupt both deltas.
+	metricsCPUSampler := procstats.NewSampler()
+	mux := http.NewServeMux()
+	mux.Handle("/", healthSrv.Handler())
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+		rt := obsmetrics.RuntimeInfo{RuntimeID: runtimeID, CPUPercent: metricsCPUSampler.CPUPercent(), MemoryBytes: procstats.MemoryBytes()}
+		_, _ = w.Write([]byte(obsmetrics.FormatPrometheus(deployment.MetricsSnapshot(), rt)))
+	})
+	httpServer := &http.Server{Addr: httpAddr, Handler: mux}
 	go func() {
 		slog.Info("runtime health endpoint listening", "addr", httpAddr)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
