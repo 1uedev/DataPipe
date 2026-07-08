@@ -10,6 +10,7 @@ import { FlowCanvas } from '../components/FlowCanvas'
 import { ConfigPanel } from '../components/ConfigPanel'
 import { DebugSidebar } from '../components/DebugSidebar'
 import { canvasToContent, contentToCanvas } from '../utils/flowConversion'
+import { downloadJSON } from '../utils/download'
 import { useDebugStore } from '../store/debug'
 import { useI18n } from '../i18n'
 
@@ -91,6 +92,12 @@ export default function FlowEditor() {
     } finally {
       setSaving(false)
     }
+  }
+
+  async function onExport() {
+    if (!flow) return
+    const bundle = await api.exportFlow(flow.id)
+    downloadJSON(`${flow.name}.flow.json`, bundle)
   }
 
   async function onLogLevelChange(level: Flow['logLevel']) {
@@ -219,6 +226,9 @@ export default function FlowEditor() {
           </button>
           <button onClick={() => void onSave()} disabled={saving} className="rounded border border-(--color-border) px-2 py-1">
             {t('editor.save')}
+          </button>
+          <button onClick={() => void onExport()} className="rounded border border-(--color-border) px-2 py-1">
+            {t('editor.export')}
           </button>
           <input
             className="w-40 rounded border border-(--color-border) bg-transparent px-2 py-1"

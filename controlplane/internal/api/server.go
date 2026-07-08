@@ -131,6 +131,9 @@ func (h *Handlers) Routes() http.Handler {
 	protected.HandleFunc("GET /flows/{flowId}/versions", h.listFlowVersions)
 	protected.HandleFunc("GET /flows/{flowId}/versions/{version}", h.getFlowVersion)
 	protected.HandleFunc("POST /flows/{flowId}/versions/{version}/rollback", h.rollbackFlow)
+	protected.HandleFunc("GET /flows/{flowId}/export", h.exportFlow)
+	protected.HandleFunc("GET /projects/{projectId}/export", h.exportProject)
+	protected.HandleFunc("POST /projects/{projectId}/import", h.importProject)
 
 	protected.HandleFunc("GET /projects/{projectId}/connections", h.listConnections)
 	protected.HandleFunc("POST /projects/{projectId}/connections", h.createConnection)

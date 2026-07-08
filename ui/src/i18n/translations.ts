@@ -31,6 +31,10 @@ export const translations = {
     'flows.notDeployed': 'Not deployed',
     'flows.backToProjects': 'Back to projects',
 
+    'vcs.export': 'Export project',
+    'vcs.import': 'Import',
+    'vcs.import.summary': 'Imported {{flows}} flow(s); connections: {{matched}} matched existing, {{created}} newly created (attach credentials to new connections).',
+
     'connections.title': 'Connections',
     'connections.empty': 'No connections yet.',
     'connections.create': 'New connection',
@@ -62,6 +66,7 @@ export const translations = {
     'editor.paste': 'Paste',
     'editor.save': 'Save draft',
     'editor.saved': 'Draft saved',
+    'editor.export': 'Export',
     'editor.deploy': 'Deploy',
     'editor.deploy.deploying': 'Deploying…',
     'editor.deploy.success': 'Deployed as version {{version}}',
@@ -258,6 +263,10 @@ export const translations = {
     'flows.notDeployed': 'Nicht bereitgestellt',
     'flows.backToProjects': 'Zurück zu Projekten',
 
+    'vcs.export': 'Projekt exportieren',
+    'vcs.import': 'Importieren',
+    'vcs.import.summary': '{{flows}} Flow(s) importiert; Verbindungen: {{matched}} bestehende zugeordnet, {{created}} neu erstellt (Zugangsdaten für neue Verbindungen ergänzen).',
+
     'connections.title': 'Verbindungen',
     'connections.empty': 'Noch keine Verbindungen.',
     'connections.create': 'Neue Verbindung',
@@ -289,6 +298,7 @@ export const translations = {
     'editor.paste': 'Einfügen',
     'editor.save': 'Entwurf speichern',
     'editor.saved': 'Entwurf gespeichert',
+    'editor.export': 'Exportieren',
     'editor.deploy': 'Bereitstellen',
     'editor.deploy.deploying': 'Wird bereitgestellt…',
     'editor.deploy.success': 'Als Version {{version}} bereitgestellt',

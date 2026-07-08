@@ -362,6 +362,66 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /flows/{flowId}/export:
+    parameters:
+      - $ref: "#/components/parameters/FlowId"
+    get:
+      summary: >
+        Export a single flow as a portable JSON bundle (VCS-130, Viewer+):
+        the flow's current draft content, with every node's connection
+        reference rewritten to a bundle-local ref, plus the portable
+        (secret-free) definitions of the connections it references. No
+        credential id or value is ever included — only whether a
+        connection had one attached (hasCredential), so the importing UI
+        knows to prompt for one.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FlowExportBundle" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /projects/{projectId}/export:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    get:
+      summary: Export every flow in a project as one portable JSON bundle (VCS-130, Viewer+); same rules as the single-flow export above.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FlowExportBundle" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /projects/{projectId}/import:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    post:
+      summary: >
+        Import a previously exported bundle into this project (Editor+).
+        Every bundle flow is created as a NEW draft flow (import never
+        overwrites an existing flow). Each bundle connection is matched
+        onto an existing same-name-and-type connection in this project if
+        one exists, or created fresh with no credential attached
+        otherwise — attach the credential afterward via the normal
+        connections UI/API.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FlowExportBundle" }
+      responses:
+        "201":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ImportResult" }
+        "400": { description: Bundle has no flows or is otherwise invalid }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
   /projects/{projectId}/connections:
     parameters:
       - $ref: "#/components/parameters/ProjectId"

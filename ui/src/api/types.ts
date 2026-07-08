@@ -45,6 +45,34 @@ export interface Connection {
   credentialId: string | null
 }
 
+// VCS-130 import/export.
+export interface ExportedConnection {
+  ref: string
+  name: string
+  type: string
+  config: Record<string, unknown>
+  hasCredential: boolean
+}
+
+export interface ExportedFlow {
+  name: string
+  content: FlowFileContent
+}
+
+export interface FlowExportBundle {
+  formatVersion: number
+  exportedAt: string
+  projectName?: string
+  flows: ExportedFlow[]
+  connections: ExportedConnection[]
+}
+
+export interface ImportResult {
+  flows: Flow[]
+  connectionsCreated: Connection[]
+  connectionsMatched: Connection[]
+}
+
 // CON-140 "test connection" result.
 export interface ConnectionTestResult {
   ok: boolean

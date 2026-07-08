@@ -1,8 +1,9 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import * as api from '../api/resources'
-import type { Connection, ConnectionTestResult, Flow, Project } from '../api/types'
+import type { Connection, ConnectionTestResult, Flow, FlowExportBundle, ImportResult, Project } from '../api/types'
 import { useI18n } from '../i18n'
+import { downloadJSON } from '../utils/download'
 import { emptyFlowContent } from '../utils/flowFile'
 
 export default function ProjectDetail() {
@@ -13,6 +14,9 @@ export default function ProjectDetail() {
   const [name, setName] = useState('')
   const [creating, setCreating] = useState(false)
   const [connections, setConnections] = useState<Connection[] | null>(null)
+  const [importResult, setImportResult] = useState<ImportResult | null>(null)
+  const [importError, setImportError] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!projectId) return
@@ -39,12 +43,66 @@ export default function ProjectDetail() {
     setConnections((prev) => (prev ?? []).filter((c) => c.id !== id))
   }
 
+  async function onExportProject() {
+    if (!projectId || !project) return
+    const bundle = await api.exportProject(projectId)
+    downloadJSON(`${project.name}.project.json`, bundle)
+  }
+
+  async function onImportFile(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file || !projectId) return
+    setImportError(null)
+    setImportResult(null)
+    let bundle: FlowExportBundle
+    try {
+      bundle = JSON.parse(await file.text()) as FlowExportBundle
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : String(err))
+      return
+    }
+    try {
+      const result = await api.importProject(projectId, bundle)
+      setImportResult(result)
+      setFlows((prev) => [...(prev ?? []), ...result.flows])
+      setConnections((prev) => [...(prev ?? []), ...result.connectionsCreated])
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
   return (
     <div className="mx-auto max-w-2xl p-6">
       <Link to="/projects" className="text-sm text-(--color-accent)">
         ← {t('flows.backToProjects')}
       </Link>
-      <h1 className="mt-2 mb-4 text-xl font-semibold">{project?.name ?? t('common.loading')}</h1>
+      <div className="mt-2 mb-4 flex items-center justify-between">
+        <h1 className="text-xl font-semibold">{project?.name ?? t('common.loading')}</h1>
+        <div className="flex gap-2">
+          <button onClick={() => void onExportProject()} className="rounded border border-(--color-border) px-2 py-1 text-xs">
+            {t('vcs.export')}
+          </button>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="rounded border border-(--color-border) px-2 py-1 text-xs"
+          >
+            {t('vcs.import')}
+          </button>
+          <input ref={fileInputRef} type="file" accept="application/json" className="hidden" onChange={(e) => void onImportFile(e)} />
+        </div>
+      </div>
+
+      {importError && <p className="mb-4 text-sm text-red-600">{importError}</p>}
+      {importResult && (
+        <p className="mb-4 text-sm text-(--color-text-muted)">
+          {t('vcs.import.summary', {
+            flows: String(importResult.flows.length),
+            matched: String(importResult.connectionsMatched.length),
+            created: String(importResult.connectionsCreated.length),
+          })}
+        </p>
+      )}
 
       <h2 className="mb-2 text-sm font-semibold text-(--color-text-muted)">{t('flows.title')}</h2>
       {flows === null ? (

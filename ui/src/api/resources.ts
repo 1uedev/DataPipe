@@ -14,8 +14,10 @@ import type {
   ExecutionDetail,
   ExecutionStatus,
   Flow,
+  FlowExportBundle,
   FlowFileContent,
   FlowVersion,
+  ImportResult,
   NodeType,
   PreviewResult,
   Project,
@@ -85,6 +87,20 @@ export function deployFlow(flowId: string, comment: string) {
 
 export function setFlowLogLevel(flowId: string, level: 'debug' | 'info' | 'warn' | 'error') {
   return request<Flow>(`/flows/${flowId}/log-level`, { method: 'PATCH', body: { level } })
+}
+
+// --- VCS-130: import/export ---
+
+export function exportFlow(flowId: string) {
+  return request<FlowExportBundle>(`/flows/${flowId}/export`)
+}
+
+export function exportProject(projectId: string) {
+  return request<FlowExportBundle>(`/projects/${projectId}/export`)
+}
+
+export function importProject(projectId: string, bundle: FlowExportBundle) {
+  return request<ImportResult>(`/projects/${projectId}/import`, { method: 'POST', body: bundle })
 }
 
 export function listFlowVersions(flowId: string) {
