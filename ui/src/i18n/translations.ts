@@ -46,6 +46,16 @@ export const translations = {
     'connections.testing': 'Testing…',
     'connections.delete': 'Delete',
 
+    'profiles.title': 'Environment profiles',
+    'profiles.empty': 'No profiles yet.',
+    'profiles.empty.values': 'No values.',
+    'profiles.create': 'New profile',
+    'profiles.create.submit': 'Create profile',
+    'profiles.values': 'Values (JSON)',
+    'profiles.edit': 'Edit',
+    'profiles.cancel': 'Cancel',
+    'profiles.save': 'Save',
+
     'editor.palette.title': 'Palette',
     'editor.palette.search': 'Search nodes…',
     'editor.palette.empty': 'No matching nodes.',
@@ -80,6 +90,8 @@ export const translations = {
     'editor.logLevel.info': 'Info',
     'editor.logLevel.warn': 'Warn',
     'editor.logLevel.error': 'Error',
+    'editor.envProfile': 'Environment profile',
+    'editor.envProfile.none': 'No profile',
 
     'config.title': 'Configuration',
     'config.tab.config': 'Config',
@@ -278,6 +290,16 @@ export const translations = {
     'connections.testing': 'Wird getestet…',
     'connections.delete': 'Löschen',
 
+    'profiles.title': 'Umgebungsprofile',
+    'profiles.empty': 'Noch keine Profile.',
+    'profiles.empty.values': 'Keine Werte.',
+    'profiles.create': 'Neues Profil',
+    'profiles.create.submit': 'Profil erstellen',
+    'profiles.values': 'Werte (JSON)',
+    'profiles.edit': 'Bearbeiten',
+    'profiles.cancel': 'Abbrechen',
+    'profiles.save': 'Speichern',
+
     'editor.palette.title': 'Palette',
     'editor.palette.search': 'Knoten suchen…',
     'editor.palette.empty': 'Keine passenden Knoten.',
@@ -312,6 +334,8 @@ export const translations = {
     'editor.logLevel.info': 'Info',
     'editor.logLevel.warn': 'Warnung',
     'editor.logLevel.error': 'Fehler',
+    'editor.envProfile': 'Umgebungsprofil',
+    'editor.envProfile.none': 'Kein Profil',
 
     'config.title': 'Konfiguration',
     'config.tab.config': 'Konfiguration',

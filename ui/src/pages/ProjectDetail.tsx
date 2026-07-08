@@ -1,7 +1,15 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import * as api from '../api/resources'
-import type { Connection, ConnectionTestResult, Flow, FlowExportBundle, ImportResult, Project } from '../api/types'
+import type {
+  Connection,
+  ConnectionTestResult,
+  EnvironmentProfile,
+  Flow,
+  FlowExportBundle,
+  ImportResult,
+  Project,
+} from '../api/types'
 import { useI18n } from '../i18n'
 import { downloadJSON } from '../utils/download'
 import { emptyFlowContent } from '../utils/flowFile'
@@ -17,12 +25,14 @@ export default function ProjectDetail() {
   const [importResult, setImportResult] = useState<ImportResult | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [profiles, setProfiles] = useState<EnvironmentProfile[] | null>(null)
 
   useEffect(() => {
     if (!projectId) return
     void api.getProject(projectId).then(setProject)
     void api.listFlows(projectId).then((data) => setFlows(data ?? []))
     void api.listConnections(projectId).then((data) => setConnections(data ?? []))
+    void api.listEnvProfiles(projectId).then((data) => setProfiles(data ?? []))
   }, [projectId])
 
   async function onCreate(e: FormEvent) {
@@ -41,6 +51,11 @@ export default function ProjectDetail() {
   async function onDeleteConnection(id: string) {
     await api.deleteConnection(id)
     setConnections((prev) => (prev ?? []).filter((c) => c.id !== id))
+  }
+
+  async function onDeleteProfile(id: string) {
+    await api.deleteEnvProfile(id)
+    setProfiles((prev) => (prev ?? []).filter((p) => p.id !== id))
   }
 
   async function onExportProject() {
@@ -171,7 +186,169 @@ export default function ProjectDetail() {
           onCreated={(c) => setConnections((prev) => [...(prev ?? []), c])}
         />
       )}
+
+      <h2 className="mt-8 mb-2 text-sm font-semibold text-(--color-text-muted)">{t('profiles.title')}</h2>
+      {profiles === null ? (
+        <p className="text-sm text-(--color-text-muted)">{t('common.loading')}</p>
+      ) : profiles.length === 0 ? (
+        <p className="mb-6 text-sm text-(--color-text-muted)">{t('profiles.empty')}</p>
+      ) : (
+        <ul className="mb-6 divide-y divide-(--color-border) rounded border border-(--color-border)">
+          {profiles.map((p) => (
+            <ProfileRow
+              key={p.id}
+              profile={p}
+              onUpdated={(updated) => setProfiles((prev) => (prev ?? []).map((x) => (x.id === updated.id ? updated : x)))}
+              onDelete={() => void onDeleteProfile(p.id)}
+            />
+          ))}
+        </ul>
+      )}
+
+      {projectId && (
+        <CreateProfileForm
+          projectId={projectId}
+          onCreated={(p) => setProfiles((prev) => [...(prev ?? []), p])}
+        />
+      )}
     </div>
+  )
+}
+
+function ProfileRow({
+  profile,
+  onUpdated,
+  onDelete,
+}: {
+  profile: EnvironmentProfile
+  onUpdated: (p: EnvironmentProfile) => void
+  onDelete: () => void
+}) {
+  const { t } = useI18n()
+  const [editing, setEditing] = useState(false)
+  const [values, setValues] = useState(() => JSON.stringify(profile.values, null, 2))
+  const [error, setError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  async function onSave() {
+    setError(null)
+    let parsed: Record<string, string>
+    try {
+      parsed = JSON.parse(values) as Record<string, string>
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+      return
+    }
+    setSaving(true)
+    try {
+      onUpdated(await api.updateEnvProfile(profile.id, parsed))
+      setEditing(false)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <li className="px-3 py-2">
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-medium">{profile.name}</div>
+        <div className="flex gap-2">
+          <button onClick={() => setEditing((v) => !v)} className="rounded border border-(--color-border) px-2 py-1 text-xs">
+            {editing ? t('profiles.cancel') : t('profiles.edit')}
+          </button>
+          <button onClick={onDelete} className="rounded border border-(--color-border) px-2 py-1 text-xs">
+            {t('connections.delete')}
+          </button>
+        </div>
+      </div>
+      {editing ? (
+        <div className="mt-2">
+          <textarea
+            className="w-full rounded border border-(--color-border) bg-transparent p-1 font-mono text-xs"
+            rows={4}
+            value={values}
+            onChange={(e) => setValues(e.target.value)}
+          />
+          {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
+          <button
+            onClick={() => void onSave()}
+            disabled={saving}
+            className="mt-2 rounded bg-(--color-accent) px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
+          >
+            {t('profiles.save')}
+          </button>
+        </div>
+      ) : (
+        <div className="mt-1 text-xs text-(--color-text-muted)">
+          {Object.keys(profile.values).length === 0
+            ? t('profiles.empty.values')
+            : Object.entries(profile.values)
+                .map(([k, v]) => `${k}=${v}`)
+                .join(', ')}
+        </div>
+      )}
+    </li>
+  )
+}
+
+function CreateProfileForm({ projectId, onCreated }: { projectId: string; onCreated: (p: EnvironmentProfile) => void }) {
+  const { t } = useI18n()
+  const [name, setName] = useState('')
+  const [values, setValues] = useState('{}')
+  const [error, setError] = useState<string | null>(null)
+  const [creating, setCreating] = useState(false)
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault()
+    setError(null)
+    let parsed: Record<string, string>
+    try {
+      parsed = JSON.parse(values) as Record<string, string>
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+      return
+    }
+    setCreating(true)
+    try {
+      const profile = await api.createEnvProfile(projectId, name, parsed)
+      onCreated(profile)
+      setName('')
+      setValues('{}')
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  return (
+    <form onSubmit={(e) => void onSubmit(e)} className="rounded border border-(--color-border) p-4">
+      <h2 className="mb-3 text-sm font-semibold">{t('profiles.create')}</h2>
+      <label className="mb-3 block text-sm">
+        {t('connections.name')}
+        <input
+          className="mt-1 w-full rounded border border-(--color-border) bg-transparent px-2 py-1"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          required
+        />
+      </label>
+      <label className="mb-3 block text-sm">
+        {t('profiles.values')}
+        <textarea
+          className="mt-1 w-full rounded border border-(--color-border) bg-transparent p-1 font-mono"
+          rows={3}
+          value={values}
+          onChange={(e) => setValues(e.target.value)}
+        />
+      </label>
+      {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
+      <button
+        type="submit"
+        disabled={creating}
+        className="rounded bg-(--color-accent) px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+      >
+        {t('profiles.create.submit')}
+      </button>
+    </form>
   )
 }
 

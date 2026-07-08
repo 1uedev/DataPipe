@@ -27,9 +27,13 @@ type Flow struct {
 	// LogLevel is OBS-120's per-flow log level ("debug"|"info"|"warn"|
 	// "error"), deliberately outside the versioned flow content — see
 	// SetFlowLogLevel.
-	LogLevel  string    `json:"logLevel"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	LogLevel string `json:"logLevel"`
+	// ActiveProfileID is VCS-140's currently-selected environment profile
+	// for this flow's deploys, nil if none — also outside the versioned
+	// flow content, same reasoning as LogLevel.
+	ActiveProfileID *string   `json:"activeProfileId"`
+	CreatedAt       time.Time `json:"createdAt"`
+	UpdatedAt       time.Time `json:"updatedAt"`
 }
 
 // FlowVersion is immutable once created (VCS-110): "every deploy creates an
@@ -57,12 +61,12 @@ func (s *Store) CreateFlow(ctx context.Context, projectID, name string, content 
 }
 
 func (s *Store) GetFlow(ctx context.Context, id string) (*Flow, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, project_id, name, draft_content, deployed_version, log_level, created_at, updated_at FROM flows WHERE id = ?`, id)
+	row := s.db.QueryRowContext(ctx, `SELECT id, project_id, name, draft_content, deployed_version, log_level, active_profile_id, created_at, updated_at FROM flows WHERE id = ?`, id)
 	return scanFlow(row)
 }
 
 func (s *Store) ListFlows(ctx context.Context, projectID string) ([]*Flow, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, project_id, name, draft_content, deployed_version, log_level, created_at, updated_at FROM flows WHERE project_id = ? ORDER BY name`, projectID)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, project_id, name, draft_content, deployed_version, log_level, active_profile_id, created_at, updated_at FROM flows WHERE project_id = ? ORDER BY name`, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("api: listing flows: %w", err)
 	}
@@ -133,16 +137,26 @@ type DeployedFlow struct {
 	DefaultErrorFlow string
 	TargetGroup      string
 	LogLevel         string
+	// ResolvedEnv is VCS-140's deploy-time-resolved environment-profile
+	// variables, re-resolved fresh against the flow's currently active
+	// profile every time this is called (so an edited profile's values
+	// take effect on the runtime's next reconnect without a real
+	// redeploy) — nil if the flow declares no env vars or has no active
+	// profile with all of them covered.
+	ResolvedEnv map[string]string
 }
 
 // ListDeployedFlows returns every flow that currently has a deployed
 // version, with its deployed content, owning project's ERR-120 default
-// error-handler flow id, OBS-120 log level, and UI-220 runtime-group
-// assignment (parsed out of the content itself — runtimeAssignment isn't a
-// separate column).
+// error-handler flow id, OBS-120 log level, VCS-140 resolved env, and
+// UI-220 runtime-group assignment (parsed out of the content itself —
+// runtimeAssignment isn't a separate column). A flow whose active profile
+// no longer covers all its declared vars (edited out from under it) is
+// re-pushed with whatever DOES resolve rather than failing outright — the
+// missing-variable check is enforced at deploy time, not on every restore.
 func (s *Store) ListDeployedFlows(ctx context.Context) ([]DeployedFlow, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT f.id, fv.version, fv.content, p.default_error_flow, f.log_level
+		SELECT f.id, fv.version, fv.content, p.default_error_flow, f.log_level, f.active_profile_id
 		FROM flows f
 		JOIN flow_versions fv ON fv.flow_id = f.id AND fv.version = f.deployed_version
 		JOIN projects p ON p.id = f.project_id
@@ -156,16 +170,25 @@ func (s *Store) ListDeployedFlows(ctx context.Context) ([]DeployedFlow, error) {
 	for rows.Next() {
 		var d DeployedFlow
 		var content string
-		var defaultErrorFlow sql.NullString
-		if err := rows.Scan(&d.FlowID, &d.Version, &content, &defaultErrorFlow, &d.LogLevel); err != nil {
+		var defaultErrorFlow, activeProfileID sql.NullString
+		if err := rows.Scan(&d.FlowID, &d.Version, &content, &defaultErrorFlow, &d.LogLevel, &activeProfileID); err != nil {
 			return nil, fmt.Errorf("api: scanning deployed flow: %w", err)
 		}
 		d.ContentJSON = content
 		if defaultErrorFlow.Valid {
 			d.DefaultErrorFlow = defaultErrorFlow.String
 		}
-		if ff, err := flow.Parse([]byte(content)); err == nil && ff.RuntimeAssignment != nil {
-			d.TargetGroup = ff.RuntimeAssignment.Group
+		ff, ferr := flow.Parse([]byte(content))
+		if ferr == nil {
+			if ff.RuntimeAssignment != nil {
+				d.TargetGroup = ff.RuntimeAssignment.Group
+			}
+			var profile *EnvironmentProfile
+			if activeProfileID.Valid {
+				profile, _ = s.GetEnvironmentProfile(ctx, activeProfileID.String)
+			}
+			resolved, _ := resolveEnv(ff, profile)
+			d.ResolvedEnv = resolved
 		}
 		out = append(out, d)
 	}
@@ -244,7 +267,8 @@ func scanFlow(row rowScanner) (*Flow, error) {
 	var f Flow
 	var content, createdAt, updatedAt string
 	var deployedVersion sql.NullInt64
-	if err := row.Scan(&f.ID, &f.ProjectID, &f.Name, &content, &deployedVersion, &f.LogLevel, &createdAt, &updatedAt); err != nil {
+	var activeProfileID sql.NullString
+	if err := row.Scan(&f.ID, &f.ProjectID, &f.Name, &content, &deployedVersion, &f.LogLevel, &activeProfileID, &createdAt, &updatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, sql.ErrNoRows
 		}
@@ -253,6 +277,9 @@ func scanFlow(row rowScanner) (*Flow, error) {
 	f.Content = json.RawMessage(content)
 	if deployedVersion.Valid {
 		f.DeployedVersion = &deployedVersion.Int64
+	}
+	if activeProfileID.Valid {
+		f.ActiveProfileID = &activeProfileID.String
 	}
 	var err error
 	if f.CreatedAt, err = time.Parse(time.RFC3339, createdAt); err != nil {
@@ -454,11 +481,12 @@ func (h *Handlers) setFlowLogLevel(w http.ResponseWriter, r *http.Request) {
 					if ff.RuntimeAssignment != nil {
 						targetGroup = ff.RuntimeAssignment.Group
 					}
+					resolvedEnv, _ := h.resolveEnvForDeploy(r.Context(), f, ff)
 					// Best-effort: a runtime being briefly unreachable
 					// shouldn't block persisting the setting — it's picked
 					// up on the runtime's next reconnect either way
 					// (DeployStream re-push already includes LogLevel).
-					_ = h.deployer.DeployFlow(r.Context(), f.ID, *f.DeployedVersion, string(deployed.Content), defaultErrorFlow, targetGroup, req.Level)
+					_ = h.deployer.DeployFlow(r.Context(), f.ID, *f.DeployedVersion, string(deployed.Content), defaultErrorFlow, targetGroup, req.Level, resolvedEnv)
 				}
 			}
 		}
@@ -493,9 +521,26 @@ func (h *Handlers) deployFlow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Comment string `json:"comment"`
+		Comment   string  `json:"comment"`
+		ProfileID *string `json:"profileId"`
 	}
 	_ = readJSON(r, &req) // body is optional
+
+	// VCS-140: an explicit profileId (including "" to clear it) changes
+	// which profile this flow deploys against going forward; omitting the
+	// field keeps whatever was last selected.
+	if req.ProfileID != nil {
+		if err := h.store.SetFlowActiveProfile(r.Context(), f.ID, *req.ProfileID); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+		f.ActiveProfileID = req.ProfileID
+	}
+	resolvedEnv, err := h.resolveEnvForDeploy(r.Context(), f, ff)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	version, err := h.store.CreateDeployedVersion(r.Context(), f.ID, user.Username, req.Comment)
 	if err != nil {
@@ -522,7 +567,7 @@ func (h *Handlers) deployFlow(w http.ResponseWriter, r *http.Request) {
 		targetGroup = ff.RuntimeAssignment.Group
 	}
 
-	if err := h.deployer.DeployFlow(r.Context(), f.ID, version.Version, string(canonical), defaultErrorFlow, targetGroup, f.LogLevel); err != nil {
+	if err := h.deployer.DeployFlow(r.Context(), f.ID, version.Version, string(canonical), defaultErrorFlow, targetGroup, f.LogLevel, resolvedEnv); err != nil {
 		writeError(w, http.StatusConflict, "no runtime available to deploy to: "+err.Error())
 		return
 	}
@@ -614,6 +659,11 @@ func (h *Handlers) rollbackFlow(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	resolvedEnv, err := h.resolveEnvForDeploy(r.Context(), f, ff)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	newVersion, err := h.store.CreateDeployedVersion(r.Context(), f.ID, user.Username, fmt.Sprintf("rollback to version %d", version))
 	if err != nil {
@@ -639,7 +689,7 @@ func (h *Handlers) rollbackFlow(w http.ResponseWriter, r *http.Request) {
 		targetGroup = ff.RuntimeAssignment.Group
 	}
 
-	if err := h.deployer.DeployFlow(r.Context(), f.ID, newVersion.Version, string(canonical), defaultErrorFlow, targetGroup, f.LogLevel); err != nil {
+	if err := h.deployer.DeployFlow(r.Context(), f.ID, newVersion.Version, string(canonical), defaultErrorFlow, targetGroup, f.LogLevel, resolvedEnv); err != nil {
 		writeError(w, http.StatusConflict, "no runtime available to deploy to: "+err.Error())
 		return
 	}

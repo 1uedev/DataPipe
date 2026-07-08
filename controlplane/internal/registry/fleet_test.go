@@ -178,7 +178,7 @@ func TestEDGE120_DeployFlowOnlyReachesRuntimesInTheTargetGroup(t *testing.T) {
 	}
 
 	time.Sleep(100 * time.Millisecond) // let both streams register server-side
-	if err := svc.DeployFlow(ctx, "flow-edge-only", 1, `{}`, "", "edge-fab2", ""); err != nil {
+	if err := svc.DeployFlow(ctx, "flow-edge-only", 1, `{}`, "", "edge-fab2", "", nil); err != nil {
 		t.Fatalf("DeployFlow: %v", err)
 	}
 

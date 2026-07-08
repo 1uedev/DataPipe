@@ -118,6 +118,14 @@ message DeployStreamResponse {
   // fingerprint-based reconciliation is a no-op when the flow content is
   // unchanged.
   string log_level = 5;
+  // resolved_env is VCS-140's environment-profile resolution: the flow's
+  // declared env[] variables resolved against whichever profile the
+  // control plane selected at deploy time (profile value, falling back to
+  // the declaration's own default) — computed and validated (missing-
+  // variable check) control-plane side before the deploy is even accepted,
+  // never on the runtime. Exposed to expressions (MAP-130) as the "env"
+  // global, merged over the runtime process's own OS environment.
+  map<string, string> resolved_env = 6;
 }
 
 // DebugChannelRequest is one message the runtime pushes on the DebugChannel:

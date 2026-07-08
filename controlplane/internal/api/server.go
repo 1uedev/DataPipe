@@ -36,7 +36,7 @@ type rowScanner interface {
 // "" for "every connected runtime". logLevel is OBS-120's per-flow log
 // level ("" meaning "info").
 type Deployer interface {
-	DeployFlow(ctx context.Context, flowID string, version int64, flowJSON, defaultErrorFlow, targetGroup, logLevel string) error
+	DeployFlow(ctx context.Context, flowID string, version int64, flowJSON, defaultErrorFlow, targetGroup, logLevel string, resolvedEnv map[string]string) error
 }
 
 // ExecutionCommander issues runtime-bound commands for triggered
@@ -134,6 +134,11 @@ func (h *Handlers) Routes() http.Handler {
 	protected.HandleFunc("GET /flows/{flowId}/export", h.exportFlow)
 	protected.HandleFunc("GET /projects/{projectId}/export", h.exportProject)
 	protected.HandleFunc("POST /projects/{projectId}/import", h.importProject)
+
+	protected.HandleFunc("GET /projects/{projectId}/profiles", h.listEnvProfiles)
+	protected.HandleFunc("POST /projects/{projectId}/profiles", h.createEnvProfile)
+	protected.HandleFunc("PATCH /profiles/{profileId}", h.updateEnvProfile)
+	protected.HandleFunc("DELETE /profiles/{profileId}", h.deleteEnvProfile)
 
 	protected.HandleFunc("GET /projects/{projectId}/connections", h.listConnections)
 	protected.HandleFunc("POST /projects/{projectId}/connections", h.createConnection)

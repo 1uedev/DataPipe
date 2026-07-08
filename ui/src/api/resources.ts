@@ -9,6 +9,7 @@ import type {
   CredentialMeta,
   DeadLetter,
   DebugPin,
+  EnvironmentProfile,
   ExecuteNodeResult,
   Execution,
   ExecutionDetail,
@@ -81,12 +82,30 @@ export function deleteFlow(flowId: string) {
   return request<void>(`/flows/${flowId}`, { method: 'DELETE' })
 }
 
-export function deployFlow(flowId: string, comment: string) {
-  return request<FlowVersion>(`/flows/${flowId}/deploy`, { method: 'POST', body: { comment } })
+export function deployFlow(flowId: string, comment: string, profileId?: string) {
+  return request<FlowVersion>(`/flows/${flowId}/deploy`, { method: 'POST', body: { comment, profileId } })
 }
 
 export function setFlowLogLevel(flowId: string, level: 'debug' | 'info' | 'warn' | 'error') {
   return request<Flow>(`/flows/${flowId}/log-level`, { method: 'PATCH', body: { level } })
+}
+
+// --- VCS-140: environment profiles ---
+
+export function listEnvProfiles(projectId: string) {
+  return request<EnvironmentProfile[]>(`/projects/${projectId}/profiles`)
+}
+
+export function createEnvProfile(projectId: string, name: string, values: Record<string, string>) {
+  return request<EnvironmentProfile>(`/projects/${projectId}/profiles`, { method: 'POST', body: { name, values } })
+}
+
+export function updateEnvProfile(profileId: string, values: Record<string, string>) {
+  return request<EnvironmentProfile>(`/profiles/${profileId}`, { method: 'PATCH', body: { values } })
+}
+
+export function deleteEnvProfile(profileId: string) {
+  return request<void>(`/profiles/${profileId}`, { method: 'DELETE' })
 }
 
 // --- VCS-130: import/export ---

@@ -262,7 +262,14 @@ paths:
     post:
       summary: >
         Validate the current draft, create an immutable version (VCS-110),
-        and push it to the flow's assigned runtime.
+        and push it to the flow's assigned runtime. profileId (VCS-140)
+        selects which environment profile the flow's declared env[]
+        variables resolve against for this and future deploys/re-pushes;
+        omitting it reuses whatever profile was last selected. "" clears
+        the active profile (every declared var must then have its own
+        default). Every declared env var without a profile value or a
+        default fails the deploy with 400, naming the missing variable(s)
+        (the "missing-variable check at deploy" the spec calls for).
       requestBody:
         content:
           application/json:
@@ -270,13 +277,14 @@ paths:
               type: object
               properties:
                 comment: { type: string }
+                profileId: { type: string, nullable: true }
       responses:
         "201":
           description: Deployed; the new version
           content:
             application/json:
               schema: { $ref: "#/components/schemas/FlowVersion" }
-        "400": { description: Flow file failed validation }
+        "400": { description: Flow file failed validation, or a declared env var has no profile value or default }
         "403": { $ref: "#/components/responses/Forbidden" }
         "409": { description: No runtime currently connected to deploy to }
 
@@ -421,6 +429,70 @@ paths:
               schema: { $ref: "#/components/schemas/ImportResult" }
         "400": { description: Bundle has no flows or is otherwise invalid }
         "403": { $ref: "#/components/responses/Forbidden" }
+
+  /projects/{projectId}/profiles:
+    parameters:
+      - $ref: "#/components/parameters/ProjectId"
+    get:
+      summary: List a project's environment profiles (VCS-140, Viewer+)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/EnvironmentProfile" }
+    post:
+      summary: Create an environment profile (Editor+)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                values: { type: object, additionalProperties: { type: string } }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EnvironmentProfile" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /profiles/{profileId}:
+    parameters:
+      - name: profileId
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      summary: Replace an environment profile's values (Editor+)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                values: { type: object, additionalProperties: { type: string } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EnvironmentProfile" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      summary: Delete an environment profile (Editor+); flows with it active fall back to declared defaults on their next deploy
+      responses:
+        "204": { description: Deleted }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /projects/{projectId}/connections:
     parameters:
@@ -1215,8 +1287,25 @@ components:
           type: string
           enum: [debug, info, warn, error]
           description: OBS-120 per-flow log level; see PATCH /flows/{flowId}/log-level.
+        activeProfileId:
+          type: string
+          nullable: true
+          description: VCS-140 environment profile this flow currently deploys against, set via POST /flows/{flowId}/deploy's profileId; null if none.
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+
+    EnvironmentProfile:
+      type: object
+      description: >
+        VCS-140 named variable set (Flow-File-Format.md §5's { name, values }
+        shape). Resolved against a flow's declared env[] at deploy time —
+        see POST /flows/{flowId}/deploy.
+      properties:
+        id: { type: string }
+        projectId: { type: string }
+        name: { type: string }
+        values: { type: object, additionalProperties: { type: string } }
+        createdAt: { type: string, format: date-time }
 
     FlowVersion:
       type: object

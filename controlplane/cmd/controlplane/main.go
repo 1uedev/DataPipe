@@ -324,7 +324,7 @@ func (a deployedFlowsListerAdapter) ListDeployedFlows(ctx context.Context) ([]re
 	}
 	out := make([]registry.DeployedFlowInfo, len(flows))
 	for i, f := range flows {
-		out[i] = registry.DeployedFlowInfo{FlowID: f.FlowID, Version: f.Version, ContentJSON: f.ContentJSON, DefaultErrorFlow: f.DefaultErrorFlow, TargetGroup: f.TargetGroup}
+		out[i] = registry.DeployedFlowInfo{FlowID: f.FlowID, Version: f.Version, ContentJSON: f.ContentJSON, DefaultErrorFlow: f.DefaultErrorFlow, TargetGroup: f.TargetGroup, LogLevel: f.LogLevel, ResolvedEnv: f.ResolvedEnv}
 	}
 	return out, nil
 }

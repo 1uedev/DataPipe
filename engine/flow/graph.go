@@ -106,6 +106,17 @@ type Deployment struct {
 	// configured with storeForward then degrades to "fail" instead of
 	// silently dropping data (see nodeRunner.storeForward).
 	dataDir string
+
+	// resolvedEnv is VCS-140's environment-profile resolution result: the
+	// flow's declared env vars (Flow-File-Format's env[]), each resolved
+	// against whichever profile the control plane selected at deploy time
+	// (profile value, falling back to the declaration's own default) —
+	// computed and validated (missing-variable check) control-plane side,
+	// since Deployment has no notion of "project" or "profile" itself, same
+	// reasoning as defaultErrorFlow above. Exposed to expressions (MAP-130)
+	// as the "env" global, merged over (taking precedence over) the
+	// process's own OS environment variables.
+	resolvedEnv map[string]string
 }
 
 // NewDeployment creates an empty deployment ready for Deploy. A nil logger uses
@@ -208,6 +219,17 @@ func (g *Deployment) SetDefaultErrorFlow(flowID string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.defaultErrorFlow = flowID
+}
+
+// SetResolvedEnv sets VCS-140's deploy-time-resolved environment-profile
+// variables, made available to expressions as the "env" global. Deployment
+// has no notion of "profile" itself; the control plane resolves and
+// validates (missing-variable check) before pushing here. A nil map clears
+// it back to OS-env-only.
+func (g *Deployment) SetResolvedEnv(env map[string]string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.resolvedEnv = env
 }
 
 // ErrorFlowTarget returns the flow id (ERR-120's designated error handler)
@@ -639,6 +661,7 @@ func (g *Deployment) startNode(ctx context.Context, n *Node, info NodeTypeInfo, 
 	nodeCtx = withDebugContext(nodeCtx, ring, limiter, g.debugSink, g.flowID, n.ID)
 	nodeCtx = WithConnection(nodeCtx, g.connResolver, n.Connection)
 	nodeCtx = WithContextStore(nodeCtx, g.ctxStore)
+	nodeCtx = WithResolvedEnv(nodeCtx, g.resolvedEnv)
 	metrics := newNodeMetrics()
 
 	// EDGE-130 store-and-forward: only meaningful for a Processor with

@@ -22,8 +22,18 @@ export interface Flow {
   content: FlowFileContent
   deployedVersion: number | null
   logLevel: 'debug' | 'info' | 'warn' | 'error'
+  activeProfileId: string | null
   createdAt: string
   updatedAt: string
+}
+
+// VCS-140 environment profile — Flow-File-Format.md §5's { name, values }.
+export interface EnvironmentProfile {
+  id: string
+  projectId: string
+  name: string
+  values: Record<string, string>
+  createdAt: string
 }
 
 export interface FlowVersion {

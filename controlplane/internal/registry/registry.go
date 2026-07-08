@@ -76,6 +76,9 @@ type DeployedFlowInfo struct {
 	DefaultErrorFlow string
 	TargetGroup      string
 	LogLevel         string
+	// ResolvedEnv is VCS-140's deploy-time-resolved environment-profile
+	// variables, nil if the flow declares none or no profile is active.
+	ResolvedEnv map[string]string
 }
 
 // DeployedFlowsLister answers "what's currently deployed", so a runtime
@@ -343,7 +346,7 @@ func (s *Service) DeployStream(req *runtimev1.DeployStreamRequest, stream runtim
 					continue
 				}
 				select {
-				case ch <- &runtimev1.DeployStreamResponse{FlowId: f.FlowID, Version: f.Version, FlowJson: f.ContentJSON, DefaultErrorFlow: f.DefaultErrorFlow, LogLevel: f.LogLevel}:
+				case ch <- &runtimev1.DeployStreamResponse{FlowId: f.FlowID, Version: f.Version, FlowJson: f.ContentJSON, DefaultErrorFlow: f.DefaultErrorFlow, LogLevel: f.LogLevel, ResolvedEnv: f.ResolvedEnv}:
 				default:
 				}
 			}
@@ -375,7 +378,7 @@ func (s *Service) DeployStream(req *runtimev1.DeployStreamRequest, stream runtim
 // (as the log-level REST endpoint does) changes verbosity without
 // restarting any node, since ENG-140's fingerprint-based reconciliation is
 // a no-op when the flow content itself hasn't changed.
-func (s *Service) DeployFlow(ctx context.Context, flowID string, version int64, flowJSON, defaultErrorFlow, targetGroup, logLevel string) error {
+func (s *Service) DeployFlow(ctx context.Context, flowID string, version int64, flowJSON, defaultErrorFlow, targetGroup, logLevel string, resolvedEnv map[string]string) error {
 	s.mu.Lock()
 	type candidate struct {
 		runtimeID string
@@ -410,7 +413,7 @@ func (s *Service) DeployFlow(ctx context.Context, flowID string, version int64, 
 		return fmt.Errorf("no runtime currently connected in the target scope")
 	}
 
-	cmd := &runtimev1.DeployStreamResponse{FlowId: flowID, Version: version, FlowJson: flowJSON, DefaultErrorFlow: defaultErrorFlow, LogLevel: logLevel}
+	cmd := &runtimev1.DeployStreamResponse{FlowId: flowID, Version: version, FlowJson: flowJSON, DefaultErrorFlow: defaultErrorFlow, LogLevel: logLevel, ResolvedEnv: resolvedEnv}
 	for _, ch := range channels {
 		select {
 		case ch <- cmd:

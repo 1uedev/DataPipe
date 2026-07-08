@@ -175,7 +175,7 @@ func main() {
 // deployment.Deploy (a no-op restart-wise, per ENG-140 fingerprinting)
 // purely to pick up the new verbosity.
 func applyDeploy(deployment *flow.Deployment, logLevelVar *slog.LevelVar) runtimeclient.DeployHandler {
-	return func(ctx context.Context, flowID string, ver int64, flowJSON, defaultErrorFlow, logLevel string) {
+	return func(ctx context.Context, flowID string, ver int64, flowJSON, defaultErrorFlow, logLevel string, resolvedEnv map[string]string) {
 		ff, err := flow.Parse([]byte(flowJSON))
 		if err != nil {
 			slog.Error("received undeployable flow: parse failed", "flowId", flowID, "version", ver, "error", err)
@@ -190,6 +190,7 @@ func applyDeploy(deployment *flow.Deployment, logLevelVar *slog.LevelVar) runtim
 		// GET .../executions would key against a value nothing ever reports.
 		ff.ID = flowID
 		deployment.SetDefaultErrorFlow(defaultErrorFlow)
+		deployment.SetResolvedEnv(resolvedEnv)
 		logLevelVar.Set(parseLogLevel(logLevel))
 		if err := deployment.Deploy(ctx, ff); err != nil {
 			slog.Error("deploy failed", "flowId", flowID, "version", ver, "error", err)

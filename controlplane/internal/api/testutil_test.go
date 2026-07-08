@@ -58,18 +58,19 @@ type fakeDeployer struct {
 }
 
 type deployCall struct {
-	FlowID  string
-	Version int64
-	Content string
+	FlowID      string
+	Version     int64
+	Content     string
+	ResolvedEnv map[string]string
 }
 
 var errFakeDeployUnavailable = errors.New("no runtime connected (test double)")
 
-func (f *fakeDeployer) DeployFlow(ctx context.Context, flowID string, version int64, flowJSON, defaultErrorFlow, targetGroup, logLevel string) error {
+func (f *fakeDeployer) DeployFlow(ctx context.Context, flowID string, version int64, flowJSON, defaultErrorFlow, targetGroup, logLevel string, resolvedEnv map[string]string) error {
 	if f.fail {
 		return errFakeDeployUnavailable
 	}
-	f.deployedTo = append(f.deployedTo, deployCall{FlowID: flowID, Version: version, Content: flowJSON})
+	f.deployedTo = append(f.deployedTo, deployCall{FlowID: flowID, Version: version, Content: flowJSON, ResolvedEnv: resolvedEnv})
 	return nil
 }
 

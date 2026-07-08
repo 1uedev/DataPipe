@@ -450,7 +450,15 @@ type DeployStreamResponse struct {
 	// does) changes verbosity without restarting any node — ENG-140's
 	// fingerprint-based reconciliation is a no-op when the flow content is
 	// unchanged.
-	LogLevel      string `protobuf:"bytes,5,opt,name=log_level,json=logLevel,proto3" json:"log_level,omitempty"`
+	LogLevel string `protobuf:"bytes,5,opt,name=log_level,json=logLevel,proto3" json:"log_level,omitempty"`
+	// resolved_env is VCS-140's environment-profile resolution: the flow's
+	// declared env[] variables resolved against whichever profile the
+	// control plane selected at deploy time (profile value, falling back to
+	// the declaration's own default) — computed and validated (missing-
+	// variable check) control-plane side before the deploy is even accepted,
+	// never on the runtime. Exposed to expressions (MAP-130) as the "env"
+	// global, merged over the runtime process's own OS environment.
+	ResolvedEnv   map[string]string `protobuf:"bytes,6,rep,name=resolved_env,json=resolvedEnv,proto3" json:"resolved_env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -518,6 +526,13 @@ func (x *DeployStreamResponse) GetLogLevel() string {
 		return x.LogLevel
 	}
 	return ""
+}
+
+func (x *DeployStreamResponse) GetResolvedEnv() map[string]string {
+	if x != nil {
+		return x.ResolvedEnv
+	}
+	return nil
 }
 
 // DebugChannelRequest is one message the runtime pushes on the DebugChannel:
@@ -1879,13 +1894,17 @@ const file_datapipe_runtime_v1_runtime_proto_rawDesc = "" +
 	"\x13DeployStreamRequest\x12\x1d\n" +
 	"\n" +
 	"runtime_id\x18\x01 \x01(\tR\truntimeId\x12#\n" +
-	"\rsession_token\x18\x02 \x01(\tR\fsessionToken\"\xb1\x01\n" +
+	"\rsession_token\x18\x02 \x01(\tR\fsessionToken\"\xd0\x02\n" +
 	"\x14DeployStreamResponse\x12\x17\n" +
 	"\aflow_id\x18\x01 \x01(\tR\x06flowId\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\x03R\aversion\x12\x1b\n" +
 	"\tflow_json\x18\x03 \x01(\tR\bflowJson\x12,\n" +
 	"\x12default_error_flow\x18\x04 \x01(\tR\x10defaultErrorFlow\x12\x1b\n" +
-	"\tlog_level\x18\x05 \x01(\tR\blogLevel\"\xec\x01\n" +
+	"\tlog_level\x18\x05 \x01(\tR\blogLevel\x12]\n" +
+	"\fresolved_env\x18\x06 \x03(\v2:.datapipe.runtime.v1.DeployStreamResponse.ResolvedEnvEntryR\vresolvedEnv\x1a>\n" +
+	"\x10ResolvedEnvEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xec\x01\n" +
 	"\x13DebugChannelRequest\x12\x1d\n" +
 	"\n" +
 	"runtime_id\x18\x01 \x01(\tR\truntimeId\x12#\n" +
@@ -2023,7 +2042,7 @@ func file_datapipe_runtime_v1_runtime_proto_rawDescGZIP() []byte {
 }
 
 var file_datapipe_runtime_v1_runtime_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_datapipe_runtime_v1_runtime_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
+var file_datapipe_runtime_v1_runtime_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
 var file_datapipe_runtime_v1_runtime_proto_goTypes = []any{
 	(RuntimeKind)(0),                  // 0: datapipe.runtime.v1.RuntimeKind
 	(*RegisterRequest)(nil),           // 1: datapipe.runtime.v1.RegisterRequest
@@ -2048,36 +2067,38 @@ var file_datapipe_runtime_v1_runtime_proto_goTypes = []any{
 	(*RunExecution)(nil),              // 20: datapipe.runtime.v1.RunExecution
 	(*CancelExecution)(nil),           // 21: datapipe.runtime.v1.CancelExecution
 	(*ReinjectDeadLetter)(nil),        // 22: datapipe.runtime.v1.ReinjectDeadLetter
+	nil,                               // 23: datapipe.runtime.v1.DeployStreamResponse.ResolvedEnvEntry
 }
 var file_datapipe_runtime_v1_runtime_proto_depIdxs = []int32{
 	0,  // 0: datapipe.runtime.v1.RegisterRequest.kind:type_name -> datapipe.runtime.v1.RuntimeKind
 	3,  // 1: datapipe.runtime.v1.HeartbeatRequest.flow_statuses:type_name -> datapipe.runtime.v1.FlowStatus
-	9,  // 2: datapipe.runtime.v1.DebugChannelRequest.event:type_name -> datapipe.runtime.v1.DebugEvent
-	10, // 3: datapipe.runtime.v1.DebugChannelRequest.wire_metrics:type_name -> datapipe.runtime.v1.WireMetricsSnapshot
-	12, // 4: datapipe.runtime.v1.DebugChannelResponse.subscribe:type_name -> datapipe.runtime.v1.SubscribeFlow
-	13, // 5: datapipe.runtime.v1.DebugChannelResponse.unsubscribe:type_name -> datapipe.runtime.v1.UnsubscribeFlow
-	17, // 6: datapipe.runtime.v1.EventChannelRequest.execution_event:type_name -> datapipe.runtime.v1.ExecutionEvent
-	18, // 7: datapipe.runtime.v1.EventChannelRequest.dead_letter_event:type_name -> datapipe.runtime.v1.DeadLetterEvent
-	20, // 8: datapipe.runtime.v1.EventChannelResponse.run_execution:type_name -> datapipe.runtime.v1.RunExecution
-	21, // 9: datapipe.runtime.v1.EventChannelResponse.cancel_execution:type_name -> datapipe.runtime.v1.CancelExecution
-	22, // 10: datapipe.runtime.v1.EventChannelResponse.reinject_dead_letter:type_name -> datapipe.runtime.v1.ReinjectDeadLetter
-	1,  // 11: datapipe.runtime.v1.RuntimeRegistryService.Register:input_type -> datapipe.runtime.v1.RegisterRequest
-	4,  // 12: datapipe.runtime.v1.RuntimeRegistryService.Heartbeat:input_type -> datapipe.runtime.v1.HeartbeatRequest
-	6,  // 13: datapipe.runtime.v1.RuntimeRegistryService.DeployStream:input_type -> datapipe.runtime.v1.DeployStreamRequest
-	8,  // 14: datapipe.runtime.v1.RuntimeRegistryService.DebugChannel:input_type -> datapipe.runtime.v1.DebugChannelRequest
-	14, // 15: datapipe.runtime.v1.RuntimeRegistryService.ResolveConnection:input_type -> datapipe.runtime.v1.ResolveConnectionRequest
-	16, // 16: datapipe.runtime.v1.RuntimeRegistryService.EventChannel:input_type -> datapipe.runtime.v1.EventChannelRequest
-	2,  // 17: datapipe.runtime.v1.RuntimeRegistryService.Register:output_type -> datapipe.runtime.v1.RegisterResponse
-	5,  // 18: datapipe.runtime.v1.RuntimeRegistryService.Heartbeat:output_type -> datapipe.runtime.v1.HeartbeatResponse
-	7,  // 19: datapipe.runtime.v1.RuntimeRegistryService.DeployStream:output_type -> datapipe.runtime.v1.DeployStreamResponse
-	11, // 20: datapipe.runtime.v1.RuntimeRegistryService.DebugChannel:output_type -> datapipe.runtime.v1.DebugChannelResponse
-	15, // 21: datapipe.runtime.v1.RuntimeRegistryService.ResolveConnection:output_type -> datapipe.runtime.v1.ResolveConnectionResponse
-	19, // 22: datapipe.runtime.v1.RuntimeRegistryService.EventChannel:output_type -> datapipe.runtime.v1.EventChannelResponse
-	17, // [17:23] is the sub-list for method output_type
-	11, // [11:17] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	23, // 2: datapipe.runtime.v1.DeployStreamResponse.resolved_env:type_name -> datapipe.runtime.v1.DeployStreamResponse.ResolvedEnvEntry
+	9,  // 3: datapipe.runtime.v1.DebugChannelRequest.event:type_name -> datapipe.runtime.v1.DebugEvent
+	10, // 4: datapipe.runtime.v1.DebugChannelRequest.wire_metrics:type_name -> datapipe.runtime.v1.WireMetricsSnapshot
+	12, // 5: datapipe.runtime.v1.DebugChannelResponse.subscribe:type_name -> datapipe.runtime.v1.SubscribeFlow
+	13, // 6: datapipe.runtime.v1.DebugChannelResponse.unsubscribe:type_name -> datapipe.runtime.v1.UnsubscribeFlow
+	17, // 7: datapipe.runtime.v1.EventChannelRequest.execution_event:type_name -> datapipe.runtime.v1.ExecutionEvent
+	18, // 8: datapipe.runtime.v1.EventChannelRequest.dead_letter_event:type_name -> datapipe.runtime.v1.DeadLetterEvent
+	20, // 9: datapipe.runtime.v1.EventChannelResponse.run_execution:type_name -> datapipe.runtime.v1.RunExecution
+	21, // 10: datapipe.runtime.v1.EventChannelResponse.cancel_execution:type_name -> datapipe.runtime.v1.CancelExecution
+	22, // 11: datapipe.runtime.v1.EventChannelResponse.reinject_dead_letter:type_name -> datapipe.runtime.v1.ReinjectDeadLetter
+	1,  // 12: datapipe.runtime.v1.RuntimeRegistryService.Register:input_type -> datapipe.runtime.v1.RegisterRequest
+	4,  // 13: datapipe.runtime.v1.RuntimeRegistryService.Heartbeat:input_type -> datapipe.runtime.v1.HeartbeatRequest
+	6,  // 14: datapipe.runtime.v1.RuntimeRegistryService.DeployStream:input_type -> datapipe.runtime.v1.DeployStreamRequest
+	8,  // 15: datapipe.runtime.v1.RuntimeRegistryService.DebugChannel:input_type -> datapipe.runtime.v1.DebugChannelRequest
+	14, // 16: datapipe.runtime.v1.RuntimeRegistryService.ResolveConnection:input_type -> datapipe.runtime.v1.ResolveConnectionRequest
+	16, // 17: datapipe.runtime.v1.RuntimeRegistryService.EventChannel:input_type -> datapipe.runtime.v1.EventChannelRequest
+	2,  // 18: datapipe.runtime.v1.RuntimeRegistryService.Register:output_type -> datapipe.runtime.v1.RegisterResponse
+	5,  // 19: datapipe.runtime.v1.RuntimeRegistryService.Heartbeat:output_type -> datapipe.runtime.v1.HeartbeatResponse
+	7,  // 20: datapipe.runtime.v1.RuntimeRegistryService.DeployStream:output_type -> datapipe.runtime.v1.DeployStreamResponse
+	11, // 21: datapipe.runtime.v1.RuntimeRegistryService.DebugChannel:output_type -> datapipe.runtime.v1.DebugChannelResponse
+	15, // 22: datapipe.runtime.v1.RuntimeRegistryService.ResolveConnection:output_type -> datapipe.runtime.v1.ResolveConnectionResponse
+	19, // 23: datapipe.runtime.v1.RuntimeRegistryService.EventChannel:output_type -> datapipe.runtime.v1.EventChannelResponse
+	18, // [18:24] is the sub-list for method output_type
+	12, // [12:18] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_datapipe_runtime_v1_runtime_proto_init() }
@@ -2108,7 +2129,7 @@ func file_datapipe_runtime_v1_runtime_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_datapipe_runtime_v1_runtime_proto_rawDesc), len(file_datapipe_runtime_v1_runtime_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   22,
+			NumMessages:   23,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

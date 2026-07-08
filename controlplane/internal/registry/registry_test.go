@@ -76,7 +76,7 @@ func TestDeployFlow_NoRuntimeConnectedReturnsError(t *testing.T) {
 	_, svc, cleanup := startTestServer(t)
 	defer cleanup()
 
-	if err := svc.DeployFlow(context.Background(), "flow-1", 1, "{}", "", "", ""); err == nil {
+	if err := svc.DeployFlow(context.Background(), "flow-1", 1, "{}", "", "", "", nil); err == nil {
 		t.Error("DeployFlow with no connected runtime should return an error")
 	}
 }
@@ -101,7 +101,7 @@ func TestDeployFlow_PushesToOpenDeployStream(t *testing.T) {
 	deployed := make(chan error, 1)
 	go func() {
 		time.Sleep(100 * time.Millisecond)
-		deployed <- svc.DeployFlow(ctx, "flow-1", 3, `{"id":"flow-1"}`, "", "", "")
+		deployed <- svc.DeployFlow(ctx, "flow-1", 3, `{"id":"flow-1"}`, "", "", "", nil)
 	}()
 
 	cmd, err := stream.Recv()

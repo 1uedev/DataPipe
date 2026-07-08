@@ -22,8 +22,10 @@ const deployStreamRetryDelay = 2 * time.Second
 // DeployHandler applies one pushed flow deployment. defaultErrorFlow is the
 // owning project's ERR-120 fallback error-handler flow id (Increment 8),
 // "" if none is configured. logLevel is OBS-120's per-flow log level
-// ("debug"|"info"|"warn"|"error", "" meaning "info").
-type DeployHandler func(ctx context.Context, flowID string, version int64, flowJSON, defaultErrorFlow, logLevel string)
+// ("debug"|"info"|"warn"|"error", "" meaning "info"). resolvedEnv is
+// VCS-140's deploy-time-resolved environment-profile variables, nil if the
+// flow declares none or no profile was selected.
+type DeployHandler func(ctx context.Context, flowID string, version int64, flowJSON, defaultErrorFlow, logLevel string, resolvedEnv map[string]string)
 
 // FlowStatus is one deployed flow's coarse health, reported on every
 // Heartbeat (Increment 9, EDGE-120 "flow status").
@@ -174,7 +176,7 @@ func deployStreamLoop(ctx context.Context, client runtimev1.RuntimeRegistryServi
 				break
 			}
 			if onDeploy != nil {
-				onDeploy(ctx, cmd.GetFlowId(), cmd.GetVersion(), cmd.GetFlowJson(), cmd.GetDefaultErrorFlow(), cmd.GetLogLevel())
+				onDeploy(ctx, cmd.GetFlowId(), cmd.GetVersion(), cmd.GetFlowJson(), cmd.GetDefaultErrorFlow(), cmd.GetLogLevel(), cmd.GetResolvedEnv())
 			}
 		}
 

@@ -17,17 +17,25 @@ import (
 )
 
 // ExprData builds an engine/expr.Data for evaluating an expression against
-// in: Payload/Header come from the datagram, Env from the process
-// environment, and the "flow"/"global" bindings (MAP-130) are wired to
-// ctx's attached context store (flow.ContextStore) if one is attached —
-// e.g. a node unit test calling Process directly without a live Deployment
-// gets working Payload/Header/Env but no flow/global access, which is
+// in: Payload/Header come from the datagram, Env starts from the process
+// environment with VCS-140's deploy-time-resolved environment-profile
+// variables (flow.ResolvedEnv, if a Deployment attached any) overlaid on
+// top, and the "flow"/"global" bindings (MAP-130) are wired to ctx's
+// attached context store (flow.ContextStore) if one is attached — e.g. a
+// node unit test calling Process directly without a live Deployment gets
+// working Payload/Header/Env (OS-only) but no flow/global access, which is
 // harmless (expr.Data's Get/Set are nil-safe).
 func ExprData(ctx context.Context, in datagram.Datagram) expr.Data {
+	env := processEnv()
+	if resolved, ok := flow.ResolvedEnv(ctx); ok {
+		for k, v := range resolved {
+			env[k] = v
+		}
+	}
 	d := expr.Data{
 		Payload: in.Payload.Value,
 		Header:  in.Header,
-		Env:     processEnv(),
+		Env:     env,
 	}
 	store, ok := flow.ContextStore(ctx)
 	if !ok {

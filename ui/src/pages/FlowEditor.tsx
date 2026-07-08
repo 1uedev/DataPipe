@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import { ReactFlowProvider } from '@xyflow/react'
 import * as api from '../api/resources'
 import { ApiError } from '../api/client'
-import type { Flow, NodeType, RuntimeGroup } from '../api/types'
+import type { EnvironmentProfile, Flow, NodeType, RuntimeGroup } from '../api/types'
 import { useEditorStore } from '../store/editor'
 import { Palette } from '../components/Palette'
 import { FlowCanvas } from '../components/FlowCanvas'
@@ -21,6 +21,8 @@ export default function FlowEditor() {
   const [nodeTypes, setNodeTypes] = useState<NodeType[]>([])
   const [runtimeGroups, setRuntimeGroups] = useState<RuntimeGroup[]>([])
   const [runtimeGroup, setRuntimeGroup] = useState('')
+  const [envProfiles, setEnvProfiles] = useState<EnvironmentProfile[]>([])
+  const [profileId, setProfileId] = useState('')
   const [saving, setSaving] = useState(false)
   const [deployState, setDeployState] = useState<'idle' | 'deploying' | 'success' | 'error'>('idle')
   const [deployMessage, setDeployMessage] = useState('')
@@ -52,8 +54,10 @@ export default function FlowEditor() {
     void api.getFlow(flowId).then((f) => {
       setFlow(f)
       setRuntimeGroup(f.content.runtimeAssignment?.group ?? '')
+      setProfileId(f.activeProfileId ?? '')
       const { nodes, edges } = contentToCanvas(f.content)
       load(nodes, edges, f.content.disabled ?? false)
+      void api.listEnvProfiles(f.projectId).then(setEnvProfiles)
     })
     void api.listNodeTypes().then(setNodeTypes)
     void api.listRuntimeGroups().then(setRuntimeGroups)
@@ -113,7 +117,7 @@ export default function FlowEditor() {
       const content = buildContent()
       if (!content) return
       await api.updateFlow(flow.id, { content })
-      const version = await api.deployFlow(flow.id, deployComment)
+      const version = await api.deployFlow(flow.id, deployComment, profileId)
       setDeployState('success')
       setDeployMessage(t('editor.deploy.success', { version: version.version }))
       const refreshed = await api.getFlow(flow.id)
@@ -197,6 +201,20 @@ export default function FlowEditor() {
             <option value="info">{t('editor.logLevel.info')}</option>
             <option value="warn">{t('editor.logLevel.warn')}</option>
             <option value="error">{t('editor.logLevel.error')}</option>
+          </select>
+          <select
+            aria-label={t('editor.envProfile')}
+            title={t('editor.envProfile')}
+            value={profileId}
+            onChange={(e) => setProfileId(e.target.value)}
+            className="rounded border border-(--color-border) bg-transparent px-1.5 py-1 text-xs"
+          >
+            <option value="">{t('editor.envProfile.none')}</option>
+            {envProfiles.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
           </select>
         </div>
         <div className="flex items-center gap-1.5">
