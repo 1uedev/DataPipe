@@ -8,6 +8,9 @@ Working queue for DataPipe. Top item is always next. Detail and acceptance crite
 
 ## Backlog / unscheduled
 
+- [ ] **Bug (found during manual screenshot work, live repro)**: debug events never reach `/ws/debug` subscribers for flows that were deployed via the register-time redeploy-all (ERR-150 path) — the same flow delivers events immediately after a fresh control-plane-issued deploy. Likely an ordering issue between `Deployment.Deploy` and `DebugSink.attach` at runtime startup (nodes bind their debug capture to a sink state that predates the DebugChannel attach). Repro: restart runtime, connect WS for an auto-redeployed flow → 0 events; POST /deploy → events flow.
+- [ ] **Bug (editor)**: wires of a freshly loaded flow are not rendered until any node is dragged — React Flow logs error 008 ("Couldn't create edge for source handle id") because edges are validated before the custom node's Handles register; a 1px node move makes all wires appear. Reproduced consistently in headless Chromium (dev server and production build); needs a `useNodesInitialized`/deferred-edges fix in `FlowCanvas`.
+
 - [ ] **Standing item**: update `docs/User-Guide.md`, `docs/Admin-Guide.md`, `README.md`, and CLAUDE.md's "Current state" at the end of every increment (now also a CLAUDE.md ground rule; NFR-310/320 require them complete and offline-available by 1.0)
 
 - [ ] OPC-UA connector (CON-210) has no test server available in this environment to verify against — unlike Modbus, where a hand-rolled ~100-line TCP slave in test code proved the real wire encoding/decoding end-to-end, OPC-UA's secure-channel/session handshake was judged too complex to replicate the same way in the time available; only unit tests against the client's own decode helpers exist. Verify against a real OPC-UA server (or a maintained test-server library) before relying on it in production.
