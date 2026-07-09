@@ -80,6 +80,14 @@ Every security-relevant action (logins, user/permission changes, credential writ
 * CLI: `datapipe deploy <flow.json> [-for <duration>]` deploys a flow file directly to a runtime (developer tool); `datapipe version` prints the build version.
 * **Crash recovery** (ERR-150): when a runtime (re)connects, the control plane immediately re-pushes every currently-deployed flow to it — no manual redeploy needed after a runtime restart. Any execution that was still `running`/`waiting` on a runtime whose connection just dropped is automatically marked `crashed` in its execution history (visible, re-runnable), rather than sitting "running" forever.
 
+### 6.1 Environment profiles (VCS-140)
+
+A flow can declare typed environment variables in its `settings` (name, type, optional default); a project's **environment profiles** (`GET/POST /projects/{id}/profiles`, `PATCH/DELETE /profiles/{id}`) are named value sets for those variables, creatable by Editor role and above (same RBAC tier as editing the flow itself — no separate permission). Deploying with a `profileId` (editor dropdown, or `POST /flows/{id}/deploy` body) resolves each declared variable as: profile value, else the variable's own default, else the deploy is rejected with HTTP 400 listing the missing names — a flow can never silently deploy with an unresolved variable. The resolved map travels to the runtime alongside the deploy command itself (not stored in the flow's versioned content) and is exposed to node expressions as `env.NAME`, layered over (never replacing) the runtime process's own OS environment variables. Re-selecting a profile and redeploying is a normal ENG-140 hot-swap, not a new flow version.
+
+### 6.2 Flow/project import-export (VCS-130)
+
+`GET /flows/{id}/export` and `GET /projects/{id}/export` produce a portable JSON bundle (node configs, wiring, and each referenced connection's non-secret fields only — name/type/config/whether a credential is attached, never the credential itself). `POST /projects/{id}/import` always creates new flows and never overwrites; referenced connections are matched by (name, type) onto the target project's existing connections or created credential-less otherwise. There is no admin-specific control here beyond ordinary project RBAC (Editor+ to import, any project member to export) — this is documented in full from the flow-author's perspective in the User Guide §3.1.
+
 ## 7. Triggered workflows: execution history and dead letters
 
 A flow whose entry node is a trigger (HTTP In, Error Trigger) produces one tracked **execution** per fire, stored durably in the control plane's database (`executions`, `execution_node_io` tables) — separate from, and never sampled/dropped like, the live debug channel. REST surface: `GET /flows/{id}/executions` (filter by `status`), `GET /executions/{id}` (full per-node trace), `POST /executions/{id}/rerun` (`{"from":"start"}` or `{"from":"node","nodeId":"..."}`, Operator+), `POST /executions/{id}/cancel` (Operator+). A datagram a node couldn't deliver (error policy resolved to fail/discard, or a TTL expiry) is stored as a **dead letter** (`dead_letters` table): `GET /flows/{id}/dead-letters`, `POST /dead-letters/{id}/reinject` (Operator+), `DELETE /dead-letters/{id}`.
@@ -136,17 +144,28 @@ Scheduled/automatic backups are not implemented (spec SHOULD/P2) — run either 
 
 Since Increment 5 the editor's live inspection runs over a WebSocket at `/ws/debug` on the control plane (protocol documented in `docs/api/debug-websocket.md`; the session token travels as a query parameter because the WS handshake cannot carry the auth header). Access is gated at **Operator or higher** per project — Viewers cannot see payloads. The runtime only captures and forwards debug data for flows someone is actually watching, the live stream is rate-limited (default 20 events/s per node) and payloads over 4 KiB are truncated before relay, so debugging a high-volume flow does not overload runtime, control plane, or browser. Wire counters remain exact regardless of sampling.
 
-## 11. Monitoring and troubleshooting
+## 11. Monitoring, alerting, and troubleshooting
+
+### 11.1 Monitoring dashboard (OBS-110)
+
+The editor's **Monitoring** page (all authenticated roles, read-only for non-admins) shows connected-runtime health (mirrors `GET /api/v1/runtimes` — CPU/memory/flow count, §8.3) and a connection status board (last known reachability per connection across all projects the user can see). This is a live in-memory view built from the same data as §8.3 and the metrics endpoint below; it persists nothing of its own.
+
+### 11.2 Alerting (OBS-140)
+
+**Alert rules** (`GET/POST /alert-rules`, `DELETE /alert-rules/{id}`, **System Admin only**) define a condition (`connectionDown` or `runtimeOffline`, each with a threshold) and optionally a webhook URL that receives an HTTP POST when the rule transitions into a firing state. `GET /alerts` lists currently-active alerts (readable by any authenticated user, same as the dashboard). Rules are global to the control plane instance, not scoped to a project — a System Admin managing multiple projects' worth of connections/runtimes sees and configures alerting for all of them in one place. There is no metric-threshold or log-content alerting yet (connection/runtime reachability only) and no alert-history/acknowledgment workflow — a firing alert simply disappears from `GET /alerts` once its condition clears.
+
+### 11.3 Troubleshooting
 
 | Symptom | Check |
 |---|---|
 | UI shows "no runtime connected" on deploy (HTTP 409) | Is the runtime process up? `GET :8082/healthz`; does its `CONTROLPLANE_GRPC_ADDR` point at the control plane? `GET /api/v1/runtimes` should list it |
 | Login fails after fresh install | Was `DATAPIPE_ADMIN_PASSWORD` set at first startup? Without it no bootstrap admin exists |
 | Control plane won't start | `DATAPIPE_MASTER_KEY` missing/not valid base64-32-bytes; or `DATABASE_URL` unreachable |
-| Deploy rejected (HTTP 400) | Response body lists validation errors (broken wires, unknown node types, mode violations) |
+| Deploy rejected (HTTP 400) | Response body lists validation errors (broken wires, unknown node types, mode violations); if a `profileId` was set, it also lists any environment variable that resolved to nothing (§6.1) |
 | Where is flow output? | In the editor: node Inspector (Inspect tab) and the debug sidebar show live data (Operator+). Runtime console logging is an opt-in setting on the Debug Log node; `docker compose logs -f runtime` still shows engine logs |
 | Live inspection shows nothing | Is the user at least Operator in the project? Does `/ws/debug` reach the control plane (reverse proxies must allow WebSocket upgrade)? |
 | Connection test fails | The response contains the real dial error (e.g. `connection refused`); verify host/port from the control plane's network perspective — the test runs there, not on the runtime |
+| Expected alert never fired | Confirm the rule's threshold against how long the condition has actually persisted; alerting polls periodically rather than reacting instantly, so a flap shorter than the poll interval can be missed |
 
 Health endpoints: control plane `:8080/healthz`, runtime `:8081/healthz` (compose maps it to 8082). Prometheus-format metrics (OBS-100) are exposed per-runtime at `GET :8081/metrics` (node/wire throughput, processing-time histograms, runtime CPU/memory) — pull-based and per-instance, since ARC-210's outbound-only architecture means the control plane cannot reach into an edge runtime to scrape it centrally.
 

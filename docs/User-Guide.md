@@ -1,6 +1,6 @@
 # DataPipe — User Guide
 
-**Covers:** development state after Increment 9 (edge runtime + fleet) · **Audience:** flow authors and viewers
+**Covers:** development state after Increment 10 (remaining P1 connectors + hardening) · **Audience:** flow authors and viewers
 **Status note:** DataPipe is under active development. This guide describes what works today; features from the specification that are not built yet are marked *coming soon*.
 
 ## 1. What DataPipe is
@@ -17,7 +17,15 @@ What you can do depends on your role per project: **Viewer** (look, don't touch 
 
 After login you land on the **Projects** page. Inside a project you see its **flows** and its **connections**.
 
-A **connection** is a named, reusable definition of an external system (an MQTT broker, a Postgres database): host, port, options. Connector nodes reference a connection by id instead of embedding addresses, so many nodes share one definition and credentials rotate in one place — a rotated credential is picked up by running connectors on their next reconnect, without redeploy. The project page's Connections section lets you create, list, delete, and **test** connections; "Test connection" performs a real connect attempt (currently for MQTT and Postgres) and shows you the actual error if it fails. Secrets never appear in any response. Current limits: connection config is a raw JSON field, and attaching credentials is done via the REST API (*UI coming soon*).
+A **connection** is a named, reusable definition of an external system (an MQTT broker, a database, an object store): host, port, options. Connector nodes reference a connection by id instead of embedding addresses, so many nodes share one definition and credentials rotate in one place — a rotated credential is picked up by running connectors on their next reconnect, without redeploy. The project page's Connections section lets you create, list, delete, and **test** connections; "Test connection" performs a real connect attempt for most connection types (MQTT, SQL of every dialect, MongoDB, Redis, Kafka, S3, Modbus TCP, OPC-UA) and shows you the actual error if it fails — a handful of connection types with no single well-defined reachability check (e.g. file watching, schedules) report that no live test is available rather than failing. Secrets never appear in any response. Current limits: connection config is a raw JSON field, and attaching credentials is done via the REST API (*UI coming soon*).
+
+### 3.1 Importing and exporting flows and projects
+
+Every flow's editor header has an **Export** button that downloads it as a portable JSON file: node configs, wiring, and the *referenced* connections' non-secret settings (name/type/config) — never a credential id or value, only whether one was attached. A project page has matching **Export project** (every flow in the project) and **Import** (upload a previously exported file) buttons. Importing always creates new flows (it never overwrites an existing one); each referenced connection is matched onto an existing same-name-and-type connection in the target project if one exists, or created fresh with no credential attached — attach the credential afterward the normal way. This is how you move a flow between projects or environments, back it up outside the database, or share a working pattern with someone else.
+
+### 3.2 Environment profiles
+
+A flow can declare **environment variables** in its settings (name, type, optional default) — for example a broker hostname that should differ between dev/test/prod without touching the flow itself. An **environment profile** (create/edit under a project's "Environment profiles" section) is a named set of values for some or all of those variables. The flow editor's deploy row has a profile dropdown next to the log-level one: pick a profile before deploying and its values resolve into the flow's declared variables (referenced in expressions as `env.NAME`); any declared variable with neither a profile value nor its own default blocks the deploy with a clear "missing value for ..." error rather than deploying with a hole in its configuration. Once selected, a flow remembers its active profile for the next deploy, redeploy, or reconnect.
 
 ## 4. The flow editor
 
@@ -34,8 +42,16 @@ The palette on the left lists all node types, grouped by category and color code
 | **Inject** | Source | Emits a configurable test datagram, once or on an interval |
 | **Schedule** | Source | Time trigger: fixed interval or cron expression |
 | **MQTT In** | Source | Subscribes to broker topics (wildcards, QoS); uses an MQTT connection |
-| **File Watcher** | Source | Watches directories (recursive) and parses CSV/TSV (delimiter, header, encoding), JSON, and JSON Lines; post-actions: keep/marker/move/rename/delete |
-| **SQL Source** | Source | PostgreSQL queries: one-shot, periodic, or incremental with a watermark column |
+| **File Watcher** | Source | Watches directories (recursive) and parses CSV/TSV (delimiter, header, encoding), JSON, JSON Lines, XML, and Excel (.xlsx); post-actions: keep/marker/move/rename/delete |
+| **SQL Source** | Source | Queries against PostgreSQL, MySQL, MSSQL, or SQLite: one-shot, periodic, or incremental with a watermark column |
+| **MongoDB Source** | Source | One-shot or periodic find/aggregate query, one datagram per document |
+| **Redis Source** | Source | Poll a key/pattern, subscribe to a pub/sub channel, or read a stream |
+| **Kafka Consumer** | Source | Consumer group with offset management, one datagram per message |
+| **S3 Source** | Source | Lists and parses new objects under a prefix (S3-compatible object storage) |
+| **Modbus Source** | Source | TCP/RTU master; polling groups over coils/registers with independent intervals and typed decoding |
+| **OPC-UA Source** | Source | Subscription (monitored items) or polled reads, one datagram per value |
+| **TCP In / UDP In / Serial In** | Source | Raw byte-stream sources (server or client mode for TCP), framed by delimiter, fixed length, length prefix, or timeout |
+| **WebSocket In** | Source | Accepts inbound WebSocket connections (server mode) or connects to a remote server (client mode) |
 | **Bus In** | Source | Subscribes to named internal bus topics (MQTT-style `+`/`#` wildcards, tag filters) |
 | **HTTP In** | Trigger | Exposes a webhook endpoint; each request starts a tracked **execution** (see §5.1) |
 | **Error Trigger** | Trigger | Entry point of a flow-level error-handler flow (see §5.3); each unhandled error elsewhere starts a tracked execution here |
@@ -56,10 +72,18 @@ The palette on the left lists all node types, grouped by category and color code
 | **State** | Processor | Reads/writes node/flow/global context store values |
 | **Stop and Error** | Processor | Deliberately fails the execution with a structured message/code (see §5.2) |
 | **HTTP Request** | Processor/Sink | Generic REST client: request per datagram, response merged into the flow |
+| **Kafka Producer** | Processor/Sink | Produces the incoming datagram's payload to a Kafka topic |
 | **Debug Log** | Sink | Pushes selected values to the debug sidebar (optionally also the runtime console) |
 | **MQTT Out** | Sink | Publishes with QoS/retain; topic can be templated |
 | **HTTP Response** | Sink | Replies to the exact HTTP In request that produced the datagram |
-| **SQL Sink** | Sink | Postgres insert/upsert/update/delete/exec, transactional per batch, RETURNING merged back |
+| **SQL Sink** | Sink | Insert/upsert/update/delete/exec against PostgreSQL, MySQL, MSSQL, or SQLite, transactional per batch, RETURNING merged back where the dialect supports it |
+| **MongoDB Sink** | Sink | Insert/update/upsert documents |
+| **Redis Sink** | Sink | SET a key, PUBLISH to a channel, or XADD to a stream |
+| **S3 Sink** | Sink | Writes the incoming datagram's payload as an object |
+| **Modbus Sink** | Sink | Writes a coil or (optionally typed multi-register) register value |
+| **OPC-UA Sink** | Sink | Writes a node value, or calls a method |
+| **TCP Out / UDP Out / Serial Out** | Sink | Raw byte-stream sinks (broadcast to connected clients in server mode, or send to a remote host in client mode) |
+| **WebSocket Out** | Sink | Broadcasts to connected clients (server mode) or sends to a remote server (client mode) |
 | **Bus Out** | Sink | Publishes to named internal bus topics — flow-to-flow handoff |
 
 Any string config field can be an expression: `={{ payload.value * 2 }}` (whole value) or `"line-{{tags.line}}"` (mixed template) — see the [Expression Language](Expression-Language.md) reference.
@@ -74,7 +98,7 @@ Shortcuts: undo/redo Cmd+Z / Shift+Cmd+Z (Ctrl on Windows/Linux, 100 steps), cop
 
 **Save** stores your draft; **Deploy** validates and pushes it to the connected runtime, which hot-swaps only changed nodes — untouched nodes keep running. Inline errors distinguish *invalid flow* (fix the listed problems) from *no runtime connected* (ask your administrator). Every deploy creates an immutable version; history browsing and rollback exist in the REST API (*editor UI coming soon*).
 
-The **deploy target** dropdown in the header (next to the deployed-version label) picks which runtime group this flow goes to — "Any runtime" (the default) broadcasts to every connected runtime, exactly like before Increment 9; picking a named group restricts the deploy to only the runtimes your administrator has assigned to that group (fleet management, §8).
+The **deploy target** dropdown in the header (next to the deployed-version label) picks which runtime group this flow goes to — "Any runtime" (the default) broadcasts to every connected runtime, exactly like before Increment 9; picking a named group restricts the deploy to only the runtimes your administrator has assigned to that group (fleet management, §8). The **log level** dropdown next to it changes how verbose this flow's runtime logging is (debug/info/warn/error) without a redeploy — it's a setting, not part of the flow's versioned content. The **environment profile** dropdown (§3.2) selects which variable set this flow's deploy resolves against.
 
 ## 5. Watching your data live
 
@@ -134,13 +158,32 @@ From the Fleet page, **Issue token** creates a one-time-shown enrollment token, 
 
 A node writing to something outside the local network — an MQTT/SQL sink or HTTP request pointed at a central system — can be configured with `errorPolicy.onError: "storeForward"` (currently a flow-JSON-only setting; a config-panel UI for it is *coming soon*) instead of the usual fail/retry/discard/error-port choices. When that destination is unreachable, datagrams are queued to local disk instead of being dropped, and delivered in order, automatically, as soon as the destination comes back — including surviving the runtime process itself restarting in the meantime. `errorPolicy.storeForward.maxSizeMb`/`maxAgeSec` bound how much can be queued before the oldest entries are dropped.
 
-## 9. Current limitations (honest list)
+## 9. Monitoring, alerting, and getting started
+
+### 9.1 Monitoring dashboard
+
+The **Monitoring** page in the top bar shows fleet and flow health at a glance: connected runtimes with their live CPU/memory (mirrored from the Fleet page, §8), a connection status board (last known reachability per connection, refreshed by connection tests and connector reconnect attempts), and the raw counters also exposed at `/metrics` in Prometheus text format for scraping into Grafana or similar (`OBS-100`). Structured JSON logs (`OBS-120`) are written per runtime process; each flow's deploy row's log-level dropdown (§4.4) controls verbosity without a redeploy.
+
+### 9.2 Alerting
+
+Below the dashboard, the **Alerts** panel lists currently firing alerts (for example a runtime that stopped sending heartbeats, or a connection that's been unreachable past a threshold). A System Admin can define **alert rules** (connection-down / runtime-offline conditions with a threshold) and optionally attach a webhook URL so an external system (chat ops, PagerDuty-style receivers) gets notified the moment a rule fires — everyone else sees the active-alerts list read-only. Alert rules are global to the control plane, not per-project.
+
+### 9.3 Getting started: tutorial and templates
+
+A new, empty flow opens with an interactive **tutorial** overlay (dismissible, and re-openable from the flow editor's header) that walks through dragging an Inject node, wiring it to a processor, adding a Debug node, and deploying — each step's checkmark is driven by what's actually on your canvas, not a scripted click-through, so it also completes correctly if you do the steps in a different order or already know the shortcuts. A project's **template gallery** (project page) offers a handful of ready-to-use starting flows (inject→transform→debug, MQTT→debug, scheduled HTTP poll→debug, file-watch→SQL sink) — picking one imports it into the project exactly like importing an exported flow bundle (§3.1), then you can edit it freely.
+
+## 10. Current limitations (honest list)
 
 * No subflows, visual groups, or sticky notes yet.
-* Industrial connectors beyond MQTT (OPC-UA, Modbus, Kafka, SECS/GEM) are scheduled for Increments 10–11.
+* SECS/GEM connectivity is planned for a future increment; MQTT, HTTP, files, SQL (Postgres/MySQL/MSSQL/SQLite), MongoDB, Redis, Kafka, S3, WebSocket, raw TCP/UDP/Serial, Modbus, and OPC-UA are done.
+* OPC-UA connectivity has been verified against the client library's own protocol handling but not against a real/third-party OPC-UA server in this environment — treat it as needing a field test before production use.
 * Only HTTP In and Error Trigger are trigger nodes today; a "Cron Trigger" (one tracked execution per schedule tick, distinct from the always-on Schedule source) is a natural future addition.
 * Cancelling a running execution, or an execution hitting its timeout, does not forcibly stop the node goroutine still processing underneath it — it stops being tracked and its concurrency slot frees, but very long-running node work keeps running to completion.
 * The Executions and Dead Letters views are per-flow only; there is no project-wide "everything that failed today" view yet.
 * `errorPolicy.onError: "storeForward"` (§8.3) has no config-panel UI yet — set it by editing the flow JSON directly.
 * A runtime group can only ever run one deployed flow at a time per member runtime, same as an ungrouped one — group targeting controls *which* runtimes a flow reaches, not how many different flows one runtime can run simultaneously.
+* Alert rules cover connection/runtime reachability only — no metric-threshold or log-pattern alerting yet.
+* Backup/restore (§ Admin Guide) is a manual, on-demand CLI/API action; there is no scheduled/automatic backup job.
+* There is no in-product log viewer for the structured JSON logs (§9.1) — read them from the runtime process's stdout/your log aggregator.
+* The onboarding tutorial (§9.3) tracks a single golden path (inject → transform → debug → deploy); it does not recognize alternative equally-valid first flows as "done" beyond that shape.
 * There is no way to fully remove a retired edge device from the Fleet inventory yet, only revoke its enrollment token.
