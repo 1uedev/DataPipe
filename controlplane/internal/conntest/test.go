@@ -33,6 +33,8 @@ import (
 	_ "github.com/microsoft/go-mssqldb" // registers the "sqlserver" database/sql driver
 	_ "modernc.org/sqlite"              // registers the "sqlite" database/sql driver
 
+	"github.com/1uedev/DataPipe/engine/nodes/gem"
+	"github.com/1uedev/DataPipe/engine/nodes/hsms"
 	"github.com/1uedev/DataPipe/engine/nodes/kafkashared"
 	"github.com/1uedev/DataPipe/engine/nodes/modbusshared"
 	"github.com/1uedev/DataPipe/engine/nodes/mongoshared"
@@ -40,6 +42,7 @@ import (
 	"github.com/1uedev/DataPipe/engine/nodes/opcuashared"
 	"github.com/1uedev/DataPipe/engine/nodes/redisshared"
 	"github.com/1uedev/DataPipe/engine/nodes/s3shared"
+	"github.com/1uedev/DataPipe/engine/nodes/secsgemshared"
 	"github.com/1uedev/DataPipe/engine/nodes/sqlshared"
 )
 
@@ -78,6 +81,8 @@ func Test(ctx context.Context, connType string, config, credential json.RawMessa
 		return testModbus(ctx, config)
 	case "opcua":
 		return testOPCUA(ctx, config, credential)
+	case "secsgem":
+		return testSECSGEM(ctx, config)
 	default:
 		return Result{OK: true, Message: "no live test available for this connection type; config was accepted as-is"}
 	}
@@ -323,6 +328,42 @@ func testOPCUA(ctx context.Context, config, credential json.RawMessage) Result {
 	}
 	defer func() { _ = client.Close(ctx) }()
 	return Result{OK: true, Message: "connected successfully"}
+}
+
+func testSECSGEM(ctx context.Context, config json.RawMessage) Result {
+	var cfg secsgemshared.Config
+	if err := json.Unmarshal(config, &cfg); err != nil {
+		return Result{OK: false, Message: "invalid config: " + err.Error()}
+	}
+	if cfg.Port == 0 {
+		return Result{OK: false, Message: "port is required"}
+	}
+	if cfg.Mode != "active" {
+		return Result{OK: true, Message: "no live test available for mode \"passive\" connections (the equipment dials in, not the control plane); config was accepted as-is"}
+	}
+	if cfg.Host == "" {
+		return Result{OK: false, Message: "host is required for mode \"active\""}
+	}
+
+	timers := cfg.HSMSTimers()
+	timers.T6 = Timeout
+	conn, err := hsms.Dial(ctx, cfg.Addr(), uint16(cfg.SessionID), timers)
+	if err != nil {
+		return Result{OK: false, Message: err.Error()}
+	}
+	defer func() { _ = conn.Separate() }()
+
+	mdln, softrev := cfg.Identity()
+	host := gem.NewHost(conn, mdln, softrev)
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func() { _ = host.Run(runCtx) }()
+
+	equipMDLN, equipSoftrev, err := host.AreYouThere(ctx)
+	if err != nil {
+		return Result{OK: false, Message: "HSMS Select succeeded but Are-You-There (S1F1) failed: " + err.Error()}
+	}
+	return Result{OK: true, Message: fmt.Sprintf("connected, selected, and equipment responded (model %q, software revision %q)", equipMDLN, equipSoftrev)}
 }
 
 func orDefault(s, def string) string {
