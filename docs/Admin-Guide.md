@@ -1,6 +1,6 @@
 # DataPipe — Administrator Guide
 
-**Covers:** development state after Increment 9 · **Audience:** operators of a DataPipe installation
+**Covers:** development state after Increment 11 — all 12 planned increments are now complete · **Audience:** operators of a DataPipe installation
 **Components:** control plane (REST API + gRPC registry), runtime (flow engine), PostgreSQL or SQLite, editor UI.
 
 ## 1. Installation
@@ -66,7 +66,9 @@ Connection definitions and credentials are project-scoped (`/projects/{id}/conne
 
 **How runtimes get credentials** (since Increment 6): deploy pushes never contain credential values. A connector node requests its decrypted connection config on demand over the runtime-initiated `ResolveConnection` gRPC call, and re-resolves on every reconnect — so rotating a credential in the control plane takes effect on the next reconnect without redeploying flows.
 
-**Connection testing**: `POST /connections/{id}/test` (also a button in the project UI) performs a real bounded connect attempt from the control plane. Implemented for `mqtt` and `postgres`; other types report "no live test available".
+**Connection testing**: `POST /connections/{id}/test` (also a button in the project UI) performs a real bounded connect attempt from the control plane for every connector family with a concrete point-to-point endpoint (mqtt, postgres/mysql/mssql/sqlite, mongodb, redis, kafka, s3, modbus tcp, opcua, secsgem in mode "active"); other types (file-watch, schedule, tcp/udp/serial/websocket server mode, secsgem mode "passive") report "no live test available" rather than failing.
+
+**SECS/GEM report browsing** (MAP-100): `POST /connections/{id}/secsgem-browse`, gated the same as connection testing (Editor+), performs a live HSMS Select + Establish Communications + S1F11 Status Variable Namelist Request against a `secsgem` connection in mode "active" and returns its SVID catalog — this is what backs the flow editor's "Browse SVIDs" panel on a `secsgem-in` node.
 
 ## 5. Audit log
 

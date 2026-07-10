@@ -1,6 +1,6 @@
 # DataPipe — User Guide
 
-**Covers:** development state after Increment 10 (remaining P1 connectors + hardening) · **Audience:** flow authors and viewers
+**Covers:** development state after Increment 11 (SECS/GEM) — all 12 planned increments are now complete · **Audience:** flow authors and viewers
 **Status note:** DataPipe is under active development. This guide describes what works today; features from the specification that are not built yet are marked *coming soon*.
 
 ## 1. What DataPipe is
@@ -17,7 +17,9 @@ What you can do depends on your role per project: **Viewer** (look, don't touch 
 
 After login you land on the **Projects** page. Inside a project you see its **flows** and its **connections**.
 
-A **connection** is a named, reusable definition of an external system (an MQTT broker, a database, an object store): host, port, options. Connector nodes reference a connection by id instead of embedding addresses, so many nodes share one definition and credentials rotate in one place — a rotated credential is picked up by running connectors on their next reconnect, without redeploy. The project page's Connections section lets you create, list, delete, and **test** connections; "Test connection" performs a real connect attempt for most connection types (MQTT, SQL of every dialect, MongoDB, Redis, Kafka, S3, Modbus TCP, OPC-UA) and shows you the actual error if it fails — a handful of connection types with no single well-defined reachability check (e.g. file watching, schedules) report that no live test is available rather than failing. Secrets never appear in any response. Current limits: connection config is a raw JSON field, and attaching credentials is done via the REST API (*UI coming soon*).
+A **connection** is a named, reusable definition of an external system (an MQTT broker, a database, an object store): host, port, options. Connector nodes reference a connection by id instead of embedding addresses, so many nodes share one definition and credentials rotate in one place — a rotated credential is picked up by running connectors on their next reconnect, without redeploy. The project page's Connections section lets you create, list, delete, and **test** connections; "Test connection" performs a real connect attempt for most connection types (MQTT, SQL of every dialect, MongoDB, Redis, Kafka, S3, Modbus TCP, OPC-UA, SECS/GEM in "active" mode) and shows you the actual error if it fails — a handful of connection types with no single well-defined reachability check (e.g. file watching, schedules, SECS/GEM in "passive" mode) report that no live test is available rather than failing. Secrets never appear in any response. Current limits: connection config is a raw JSON field, and attaching credentials is done via the REST API (*UI coming soon*).
+
+Every node's config panel has a **Connection** dropdown (above the Config/Description/Inspect tabs) listing the project's connections by name and type — pick one to wire that node to it. Not every node type uses a connection (plain processors like Calculator or Filter ignore it); the dropdown itself doesn't yet know which connection *types* a given node actually expects, so double-check you've picked the right kind before deploying.
 
 ### 3.1 Importing and exporting flows and projects
 
@@ -26,6 +28,18 @@ Every flow's editor header has an **Export** button that downloads it as a porta
 ### 3.2 Environment profiles
 
 A flow can declare **environment variables** in its settings (name, type, optional default) — for example a broker hostname that should differ between dev/test/prod without touching the flow itself. An **environment profile** (create/edit under a project's "Environment profiles" section) is a named set of values for some or all of those variables. The flow editor's deploy row has a profile dropdown next to the log-level one: pick a profile before deploying and its values resolve into the flow's declared variables (referenced in expressions as `env.NAME`); any declared variable with neither a profile value nor its own default blocks the deploy with a clear "missing value for ..." error rather than deploying with a hole in its configuration. Once selected, a flow remembers its active profile for the next deploy, redeploy, or reconnect.
+
+### 3.3 SECS/GEM (semiconductor equipment)
+
+A **secsgem** connection describes one piece of SECS/GEM equipment: `mode` (`"active"` — DataPipe dials the equipment; `"passive"` — DataPipe listens for the equipment to dial in), `host`/`port`, an optional `sessionId`, and this host's own reported `mdln`/`softRev` identity. The **SECS/GEM Host** source node connects, performs GEM's Establish Communications handshake, and applies whatever report/event/trace setup you've configured at startup:
+
+* **reports** — S2F33 Define Report entries: an RPTID and the SVIDs it collects.
+* **events** — S2F35 Link Event Report + S2F37 Enable Event Report: which CEIDs fire which RPTIDs, enabled the moment the flow starts.
+* **traces** — S2F23 Establish Trace: a TRID, sampling period, and the SVIDs to sample continuously.
+
+Once running, the node emits one datagram per received event report, trace-data message, or alarm on its three ports (`events`, `traces`, `alarms`). The **SECS/GEM SVID browser**, shown in the node's config tab, calls out to the equipment live (S1F11 Status Variable Namelist Request) and lists every SVID it reports with a name/units — click "SVID kopieren"/"Copy SVID" to grab the number for pasting into a report or trace's SVID list, rather than needing to already know your equipment's identifiers by heart. There's no equivalent live picker for CEIDs — SEMI E30 has no standard "list all events" message, so those still come from your equipment's own SECS/GEM manual.
+
+The **SECS/GEM Host Action** sink node sends one action per input datagram to the same kind of connection: a remote command (its parameters can be static, or merged from the input payload's own fields), a new equipment-constant value, or an arbitrary raw SxFy message built from whatever JSON-shaped value the payload holds — useful for equipment-specific messages this node type doesn't have a dedicated action for. Each call opens its own brief connection rather than holding one open continuously; most equipment only accepts a single host session at a time, so avoid wiring both a Host source and a Host Action sink to the *same* connection in one flow unless you've confirmed your equipment tolerates more than one simultaneous session.
 
 ## 4. The flow editor
 
@@ -50,6 +64,7 @@ The palette on the left lists all node types, grouped by category and color code
 | **S3 Source** | Source | Lists and parses new objects under a prefix (S3-compatible object storage) |
 | **Modbus Source** | Source | TCP/RTU master; polling groups over coils/registers with independent intervals and typed decoding |
 | **OPC-UA Source** | Source | Subscription (monitored items) or polled reads, one datagram per value |
+| **SECS/GEM Host** | Source | GEM host: establishes communications, applies configured report/event/trace setup, emits one datagram per event report/trace data/alarm on the `events`/`traces`/`alarms` ports (§3.3) |
 | **TCP In / UDP In / Serial In** | Source | Raw byte-stream sources (server or client mode for TCP), framed by delimiter, fixed length, length prefix, or timeout |
 | **WebSocket In** | Source | Accepts inbound WebSocket connections (server mode) or connects to a remote server (client mode) |
 | **Bus In** | Source | Subscribes to named internal bus topics (MQTT-style `+`/`#` wildcards, tag filters) |
@@ -82,6 +97,7 @@ The palette on the left lists all node types, grouped by category and color code
 | **S3 Sink** | Sink | Writes the incoming datagram's payload as an object |
 | **Modbus Sink** | Sink | Writes a coil or (optionally typed multi-register) register value |
 | **OPC-UA Sink** | Sink | Writes a node value, or calls a method |
+| **SECS/GEM Host Action** | Sink | Sends a remote command, equipment-constant update, or arbitrary raw SxFy message (§3.3) |
 | **TCP Out / UDP Out / Serial Out** | Sink | Raw byte-stream sinks (broadcast to connected clients in server mode, or send to a remote host in client mode) |
 | **WebSocket Out** | Sink | Broadcasts to connected clients (server mode) or sends to a remote server (client mode) |
 | **Bus Out** | Sink | Publishes to named internal bus topics — flow-to-flow handoff |
@@ -175,8 +191,10 @@ A new, empty flow opens with an interactive **tutorial** overlay (dismissible, a
 ## 10. Current limitations (honest list)
 
 * No subflows, visual groups, or sticky notes yet.
-* SECS/GEM connectivity is planned for a future increment; MQTT, HTTP, files, SQL (Postgres/MySQL/MSSQL/SQLite), MongoDB, Redis, Kafka, S3, WebSocket, raw TCP/UDP/Serial, Modbus, and OPC-UA are done.
+* Every planned connector family is now done: MQTT, HTTP, files, SQL (Postgres/MySQL/MSSQL/SQLite), MongoDB, Redis, Kafka, S3, WebSocket, raw TCP/UDP/Serial, Modbus, OPC-UA, and SECS/GEM.
 * OPC-UA connectivity has been verified against the client library's own protocol handling but not against a real/third-party OPC-UA server in this environment — treat it as needing a field test before production use.
+* SECS/GEM (§3.3) has been verified against an in-process hand-rolled equipment simulator, not against real/reference fab equipment — treat it the same way, as needing a field test before production use. SECS-I serial transport and recipe management (both P2) aren't implemented, only HSMS. There's no live CEID picker (SEMI E30 has no discovery message for it, unlike SVIDs). A Host source node and a Host Action sink node pointed at the same connection each open their own HSMS session — fine for equipment that allows more than one host session, but may collide on equipment that doesn't.
+* The node config panel's Connection dropdown (§3) doesn't check that the selected connection's type matches what the node expects — an obviously wrong pairing (e.g. an MQTT connection on an OPC-UA node) is only caught at deploy/runtime, not while picking it.
 * Only HTTP In and Error Trigger are trigger nodes today; a "Cron Trigger" (one tracked execution per schedule tick, distinct from the always-on Schedule source) is a natural future addition.
 * Cancelling a running execution, or an execution hitting its timeout, does not forcibly stop the node goroutine still processing underneath it — it stops being tracked and its concurrency slot frees, but very long-running node work keeps running to completion.
 * The Executions and Dead Letters views are per-flow only; there is no project-wide "everything that failed today" view yet.
