@@ -54,6 +54,7 @@ import (
 	_ "github.com/1uedev/DataPipe/engine/nodes/s3source"
 	_ "github.com/1uedev/DataPipe/engine/nodes/schedule"
 	_ "github.com/1uedev/DataPipe/engine/nodes/script"
+	_ "github.com/1uedev/DataPipe/engine/nodes/secsgemaction"
 	_ "github.com/1uedev/DataPipe/engine/nodes/secsgemhost"
 	_ "github.com/1uedev/DataPipe/engine/nodes/serialin"
 	_ "github.com/1uedev/DataPipe/engine/nodes/serialout"
