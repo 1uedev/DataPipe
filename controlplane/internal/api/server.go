@@ -145,6 +145,7 @@ func (h *Handlers) Routes() http.Handler {
 	protected.HandleFunc("PATCH /connections/{connectionId}", h.updateConnection)
 	protected.HandleFunc("DELETE /connections/{connectionId}", h.deleteConnection)
 	protected.HandleFunc("POST /connections/{connectionId}/test", h.testConnection)
+	protected.HandleFunc("POST /connections/{connectionId}/secsgem-browse", h.secsgemBrowse)
 
 	protected.HandleFunc("GET /projects/{projectId}/credentials", h.listCredentials)
 	protected.HandleFunc("POST /projects/{projectId}/credentials", h.createCredential)

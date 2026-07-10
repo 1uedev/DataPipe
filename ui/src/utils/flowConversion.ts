@@ -7,6 +7,7 @@ export interface CanvasNodeData extends Record<string, unknown> {
   name?: string
   config: Record<string, unknown>
   disabled: boolean
+  connection?: string
   errorPolicy?: ApiFlowNode['errorPolicy']
   overflow?: string
   typeVersion: number
@@ -27,6 +28,7 @@ export function contentToCanvas(content: FlowFileContent): { nodes: CanvasNode[]
       name: n.name,
       config: n.config ?? {},
       disabled: n.disabled ?? false,
+      connection: n.connection,
       errorPolicy: n.errorPolicy,
       overflow: n.overflow,
       typeVersion: n.typeVersion,
@@ -53,6 +55,7 @@ export function canvasToContent(base: FlowFileContent, nodes: CanvasNode[], edge
     typeVersion: n.data.typeVersion,
     name: n.data.name || undefined,
     disabled: n.data.disabled || undefined,
+    connection: n.data.connection || undefined,
     config: n.data.config,
     errorPolicy: n.data.errorPolicy,
     overflow: n.data.overflow,

@@ -104,6 +104,16 @@ export const translations = {
     'config.field.expression': 'Expression',
     'config.field.literal': 'Literal',
     'config.name': 'Name',
+    'config.connection': 'Connection',
+    'config.connection.none': 'No connection',
+
+    'secsgem.browser.title': 'SECS/GEM SVID browser',
+    'secsgem.browser.button': 'Browse SVIDs',
+    'secsgem.browser.running': 'Browsing…',
+    'secsgem.browser.noConnection': 'Assign a connection above to browse its SVIDs.',
+    'secsgem.browser.empty': 'The equipment reported no SVIDs.',
+    'secsgem.browser.copy': 'Copy SVID',
+    'secsgem.browser.hint': 'Copy an SVID into the config below to add it to a report or trace.',
 
     'inspector.run.title': 'Run once',
     'inspector.run.payload': 'Input payload (JSON)',
@@ -358,6 +368,16 @@ export const translations = {
     'config.field.expression': 'Ausdruck',
     'config.field.literal': 'Literal',
     'config.name': 'Name',
+    'config.connection': 'Verbindung',
+    'config.connection.none': 'Keine Verbindung',
+
+    'secsgem.browser.title': 'SECS/GEM-SVID-Browser',
+    'secsgem.browser.button': 'SVIDs durchsuchen',
+    'secsgem.browser.running': 'Wird durchsucht…',
+    'secsgem.browser.noConnection': 'Weisen Sie oben eine Verbindung zu, um deren SVIDs zu durchsuchen.',
+    'secsgem.browser.empty': 'Die Anlage hat keine SVIDs gemeldet.',
+    'secsgem.browser.copy': 'SVID kopieren',
+    'secsgem.browser.hint': 'Kopieren Sie eine SVID in die Konfiguration unten, um sie einem Report oder einer Trace hinzuzufügen.',
 
     'inspector.run.title': 'Einmal ausführen',
     'inspector.run.payload': 'Eingabe-Payload (JSON)',

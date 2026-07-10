@@ -294,10 +294,11 @@ export default function FlowEditor() {
         </div>
         {selectedNode && (
           <ConfigPanel
-            node={{ name: selectedNode.data.name, config: selectedNode.data.config }}
+            node={{ name: selectedNode.data.name, config: selectedNode.data.config, connection: selectedNode.data.connection }}
             nodeType={selectedNodeType}
             flowId={flow.id}
             nodeId={selectedNode.id}
+            projectId={flow.projectId}
             onChange={(patch) => updateNodeData(selectedNode.id, patch)}
             onClose={() => select(null)}
           />

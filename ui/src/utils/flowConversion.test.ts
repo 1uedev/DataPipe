@@ -34,6 +34,26 @@ describe('flowConversion', () => {
     expect(roundTripped.mode).toBe(baseContent.mode)
   })
 
+  it('round-trips a node.connection reference without dropping it', () => {
+    const content: FlowFileContent = {
+      ...baseContent,
+      graph: {
+        ...baseContent.graph,
+        nodes: [
+          { id: 'n1', type: 'secsgem-in', typeVersion: 1, connection: 'conn_equip1', config: {} },
+          { id: 'n2', type: 'debug-log', typeVersion: 1, config: {} },
+        ],
+      },
+    }
+    const { nodes, edges } = contentToCanvas(content)
+    expect(nodes[0].data.connection).toBe('conn_equip1')
+    expect(nodes[1].data.connection).toBeUndefined()
+
+    const roundTripped = canvasToContent(content, nodes, edges)
+    expect(roundTripped.graph.nodes[0].connection).toBe('conn_equip1')
+    expect(roundTripped.graph.nodes[1].connection).toBeUndefined()
+  })
+
   it('assigns a default grid position when a node has no stored layout', () => {
     const content: FlowFileContent = { ...baseContent, layout: undefined }
     const { nodes } = contentToCanvas(content)

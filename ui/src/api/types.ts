@@ -89,6 +89,19 @@ export interface ConnectionTestResult {
   message: string
 }
 
+// MAP-100 SECS/GEM report builder: live SVID catalog browse result.
+export interface SecsgemSVID {
+  svid: number
+  name: string
+  units: string
+}
+
+export interface SecsgemBrowseResult {
+  ok: boolean
+  message?: string
+  svids?: SecsgemSVID[]
+}
+
 // MAP-110 "fetch sample now" result.
 export interface PreviewResult {
   records: { port: string; datagram: unknown }[]

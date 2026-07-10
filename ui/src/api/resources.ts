@@ -26,6 +26,7 @@ import type {
   RuntimeEnrollTokenCreated,
   RuntimeGroup,
   RuntimeInfo,
+  SecsgemBrowseResult,
   User,
 } from './types'
 
@@ -154,6 +155,11 @@ export function deleteConnection(connectionId: string) {
 
 export function testConnection(connectionId: string) {
   return request<ConnectionTestResult>(`/connections/${connectionId}/test`, { method: 'POST' })
+}
+
+// MAP-100 SECS/GEM report builder: live SVID catalog browse.
+export function secsgemBrowse(connectionId: string) {
+  return request<SecsgemBrowseResult>(`/connections/${connectionId}/secsgem-browse`, { method: 'POST' })
 }
 
 export function listCredentials(projectId: string) {

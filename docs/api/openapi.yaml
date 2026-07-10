@@ -585,6 +585,30 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /connections/{connectionId}/secsgem-browse:
+    parameters:
+      - name: connectionId
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: >
+        MAP-100 SECS/GEM report builder: for a "secsgem" connection in
+        mode "active", performs a live HSMS Select + Establish
+        Communications + S1F11 Status Variable Namelist Request and
+        returns the equipment's SVID catalog to populate the report
+        builder's picker. Mode "passive" connections and non-secsgem
+        connections return ok:false with an explanatory message rather
+        than an error status.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SecsgemBrowseResult" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /projects/{projectId}/credentials:
     parameters:
       - $ref: "#/components/parameters/ProjectId"
@@ -1466,6 +1490,20 @@ components:
       properties:
         ok: { type: boolean }
         message: { type: string }
+
+    SecsgemBrowseResult:
+      type: object
+      properties:
+        ok: { type: boolean }
+        message: { type: string }
+        svids:
+          type: array
+          items:
+            type: object
+            properties:
+              svid: { type: integer }
+              name: { type: string }
+              units: { type: string }
 
     PreviewResult:
       type: object
